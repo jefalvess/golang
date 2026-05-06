@@ -1,0 +1,154 @@
+[
+  {
+    "id": "phone-1",
+    "name": "Atlas One",
+    "imageUrl": "https://example.com/images/atlas-one.png",
+    "description": "Smartphone focused on battery life and travel photography.",
+    "price": 3299.90,
+    "rating": 4.7,
+    "size": "161.2 x 74.5 x 8.1 mm",
+    "weight": "189 g",
+    "color": "Graphite",
+    "type": "celular",
+    "specifications": {
+      "batteryCapacity": "5000 mAh",
+      "cameraSpecifications": "50 MP wide + 12 MP ultrawide",
+      "memory": "8 GB",
+      "storageCapacity": "256 GB",
+      "brand": "Atlas",
+      "modelVersion": "One 2026",
+      "operatingSystem": "Android 16"
+    }
+  },
+  {
+    "id": "phone-2",
+    "name": "Nimbus Pro",
+    "imageUrl": "https://example.com/images/nimbus-pro.png",
+    "description": "High-end smartphone with strong video capture and storage.",
+    "price": 4599.00,
+    "rating": 4.8,
+    "size": "158.4 x 72.0 x 7.6 mm",
+    "weight": "181 g",
+    "color": "Silver",
+    "type": "celular",
+    "specifications": {
+      "batteryCapacity": "4700 mAh",
+      "cameraSpecifications": "48 MP wide + 48 MP telephoto + 12 MP ultrawide",
+      "memory": "12 GB",
+      "storageCapacity": "512 GB",
+      "brand": "Nimbus",
+      "modelVersion": "Pro X",
+      "operatingSystem": "Android 16"
+    }
+  },
+  {
+    "id": "phone-3",
+    "name": "Orion Lite",
+    "imageUrl": "https://example.com/images/orion-lite.png",
+    "description": "Affordable smartphone with essential features.",
+    "price": 1899.00,
+    "rating": 4.2,
+    "size": "160.0 x 73.0 x 8.5 mm",
+    "weight": "175 g",
+    "color": "Black",
+    "type": "celular",
+    "specifications": {
+      "batteryCapacity": "4000 mAh",
+      "cameraSpecifications": "12 MP wide",
+      "memory": "4 GB",
+      "storageCapacity": "64 GB",
+      "brand": "Orion",
+      "modelVersion": "Lite 2026",
+      "operatingSystem": "Android 15"
+    }
+  },
+  {
+    "id": "speaker-1",
+    "name": "Pulse Mini",
+    "imageUrl": "https://example.com/images/pulse-mini.png",
+    "description": "Compact speaker for desk setups and small rooms.",
+    "price": 499.90,
+    "rating": 4.4,
+    "size": "98 x 98 x 120 mm",
+    "weight": "740 g",
+    "color": "Blue",
+    "type": "caixa de som",
+    "specifications": {
+      "brand": "Pulse",
+      "batteryCapacity": "12 hours",
+      "connectivity": "Bluetooth 5.3, USB-C"
+    }
+  },
+  {
+    "id": "fridge-1",
+    "name": "Cooler Frost 300",
+    "imageUrl": "https://example.com/images/cooler-frost-300.png",
+    "description": "Refrigerator with fast cooling and energy saving.",
+    "price": 2999.00,
+    "rating": 4.6,
+    "size": "180 x 70 x 75 cm",
+    "weight": "60 kg",
+    "color": "White",
+    "type": "geladeira",
+    "specifications": {
+      "brand": "Cooler",
+      "capacity": "300 L",
+      "energyClass": "A++",
+      "modelVersion": "Frost 300"
+    }
+  },
+  {
+    "id": "fridge-2",
+    "name": "Arctic Max",
+    "imageUrl": "https://example.com/images/arctic-max.png",
+    "description": "Large refrigerator with smart temperature control.",
+    "price": 3999.00,
+    "rating": 4.9,
+    "size": "190 x 80 x 80 cm",
+    "weight": "70 kg",
+    "color": "Silver",
+    "type": "geladeira",
+    "specifications": {
+      "brand": "Arctic",
+      "capacity": "400 L",
+      "energyClass": "A+",
+      "modelVersion": "Max 2026"
+    }
+  },
+  {
+    "id": "microwave-1",
+    "name": "QuickHeat 20L",
+    "imageUrl": "https://example.com/images/quickheat-20l.png",
+    "description": "Microwave oven with quick heating and defrosting.",
+    "price": 599.00,
+    "rating": 4.3,
+    "size": "30 x 50 x 40 cm",
+    "weight": "15 kg",
+    "color": "White",
+    "type": "micro-ondas",
+    "specifications": {
+      "brand": "QuickHeat",
+      "capacity": "20 L",
+      "power": "800 W",
+      "modelVersion": "QH-20L"
+    }
+  },
+  {
+    "id": "microwave-2",
+    "name": "HeatMaster 25L",
+    "imageUrl": "https://example.com/images/heatmaster-25l.png",
+    "description": "Microwave with grill and digital panel.",
+    "price": 899.00,
+    "rating": 4.7,
+    "size": "32 x 52 x 42 cm",
+    "weight": "17 kg",
+    "color": "Black",
+    "type": "micro-ondas",
+    "specifications": {
+      "brand": "HeatMaster",
+      "capacity": "25 L",
+      "power": "900 W",
+      "modelVersion": "HM-25L"
+    }
+  }
+]
