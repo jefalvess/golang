@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"os"
 	"testing"
 
 	"comparify/internal/model"
@@ -28,9 +27,9 @@ func openTestDB(t *testing.T) *sql.DB {
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db := openTestDB(t)
-	schema, err := os.ReadFile("../../data/schema.sql")
+	schema, err := LoadSchema("../../data/schema.sql")
 	require.NoError(t, err)
-	require.NoError(t, MigrateSchema(db, string(schema)))
+	require.NoError(t, MigrateSchema(db, schema))
 	return db
 }
 
