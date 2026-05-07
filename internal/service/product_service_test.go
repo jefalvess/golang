@@ -12,9 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMain(m *testing.M) {
+func init() {
 	logger.Init()
-	m.Run()
 }
 
 type mockRepository struct {
