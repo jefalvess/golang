@@ -1,17 +1,41 @@
 package utils
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestSplitAndTrim(t *testing.T) {
-	input := "a, b ,c,, "
-	expected := []string{"a", "b", "c"}
-	result := SplitAndTrim(input, ",")
-	if len(result) != len(expected) {
-		t.Fatalf("esperava %d elementos, obteve %d", len(expected), len(result))
+	tests := []struct {
+		name     string
+		input    string
+		sep      string
+		expected []string
+	}{
+		{
+			name:     "com espaços e vírgulas extras",
+			input:    "a, b ,c,, ",
+			sep:      ",",
+			expected: []string{"a", "b", "c"},
+		},
+		{
+			name:     "string vazia",
+			input:    "",
+			sep:      ",",
+			expected: []string{},
+		},
+		{
+			name:     "sem separador",
+			input:    "abc",
+			sep:      ",",
+			expected: []string{"abc"},
+		},
 	}
-	for i, v := range expected {
-		if result[i] != v {
-			t.Errorf("esperava %q, obteve %q", v, result[i])
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := SplitAndTrim(tt.input, tt.sep)
+			assert.Equal(t, tt.expected, result)
+		})
 	}
 }

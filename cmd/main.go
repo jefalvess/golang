@@ -74,13 +74,13 @@ func openInMemoryDatabase() (*sql.DB, error) {
 }
 
 func initializeDatabase(db *sql.DB) error {
-	schema, err := os.ReadFile("data/schema.sql")
+	schema, err := repository.LoadSchema("data/schema.sql")
 	if err != nil {
-		return fmt.Errorf("read schema: %w", err)
+		return err
 	}
 
-	if _, err := db.Exec(string(schema)); err != nil {
-		return fmt.Errorf("exec schema: %w", err)
+	if err := repository.MigrateSchema(db, schema); err != nil {
+		return err
 	}
 
 	products, err := readSeedProducts("data/products.json")

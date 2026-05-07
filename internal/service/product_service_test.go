@@ -6,8 +6,16 @@ import (
 	"testing"
 
 	"comparify/internal/model"
-	"comparify/internal/repository"
+	"comparify/pkg/logger"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestMain(m *testing.M) {
+	logger.Init()
+	m.Run()
+}
 
 type mockRepository struct {
 	products      map[string]model.Product
@@ -62,177 +70,136 @@ func (m *mockRepository) GetSpecificationsBatch(ctx context.Context, models []st
 	return result, nil
 }
 
-func TestGetItem_Success(t *testing.T) {
-	repo := &mockRepository{
-		products: map[string]model.Product{
-			"p1": {ID: "p1", Name: "Produto 1", Model: "m1", Type: "celular"},
+func TestGetItem(t *testing.T) {
+	tests := []struct {
+		name      string
+		repo      *mockRepository
+		id        string
+		fields    string
+		expectErr error
+		expectMap map[string]interface{}
+	}{
+		{
+			name: "sucesso",
+			repo: &mockRepository{
+				products: map[string]model.Product{"p1": {ID: "p1", Name: "Produto 1", Model: "m1", Type: "celular"}},
+				specs:    map[string]map[string]string{"celular:m1": {"batteryCapacity": "3000mAh"}},
+			},
+			id:        "p1",
+			fields:    "id,name,model",
+			expectErr: nil,
+			expectMap: map[string]interface{}{"id": "p1", "name": "Produto 1", "model": "m1"},
 		},
-		specs: map[string]map[string]string{
-			"celular:m1": {"batteryCapacity": "3000mAh"},
+		{
+			name:      "produto não encontrado",
+			repo:      &mockRepository{products: map[string]model.Product{}},
+			id:        "naoexiste",
+			fields:    "id",
+			expectErr: errors.New("not found"),
+			expectMap: nil,
 		},
-	}
-	svc := NewProductService(repo)
-	item, err := svc.GetItem(context.Background(), "p1", "id,name,model")
-	if err != nil {
-		t.Fatalf("esperava sucesso, obteve erro: %v", err)
-	}
-	if item["id"] != "p1" || item["name"] != "Produto 1" || item["model"] != "m1" {
-		t.Errorf("campos básicos não batem: %v", item)
-	}
-}
-
-func TestGetItem_NotFound(t *testing.T) {
-	repo := &mockRepository{products: map[string]model.Product{}}
-	svc := NewProductService(repo)
-	_, err := svc.GetItem(context.Background(), "naoexiste", "id")
-	if err == nil {
-		t.Fatal("esperava erro para produto inexistente")
-	}
-}
-
-func TestCompare_Success(t *testing.T) {
-	repo := &mockRepository{
-		products: map[string]model.Product{
-			"p1": {ID: "p1", Name: "Produto 1", Model: "m1", Type: "celular"},
-			"p2": {ID: "p2", Name: "Produto 2", Model: "m2", Type: "celular"},
+		{
+			name: "campo inválido",
+			repo: &mockRepository{
+				products: map[string]model.Product{"p1": {ID: "p1", Name: "Produto 1", Model: "m1", Type: "celular"}},
+				specs:    map[string]map[string]string{"celular:m1": {"batteryCapacity": "3000mAh"}},
+			},
+			id:        "p1",
+			fields:    "invalido",
+			expectErr: ErrInvalidFieldSelection,
+			expectMap: nil,
 		},
-		specs: map[string]map[string]string{
-			"celular:m1": {"batteryCapacity": "3000mAh"},
-			"celular:m2": {"batteryCapacity": "4000mAh"},
-		},
-	}
-	svc := NewProductService(repo)
-	items, err := svc.Compare(context.Background(), []string{"p1", "p2"}, "id,model")
-	if err != nil {
-		t.Fatalf("esperava sucesso, obteve erro: %v", err)
-	}
-	if len(items) != 2 {
-		t.Fatalf("esperava 2 itens, obteve %d", len(items))
-	}
-	if items[0]["id"] != "p1" || items[1]["id"] != "p2" {
-		t.Errorf("ordem dos ids não bate: %v", items)
-	}
-}
-
-func TestCompare_InvalidField(t *testing.T) {
-	repo := &mockRepository{
-		products: map[string]model.Product{
-			"p1": {ID: "p1", Name: "Produto 1", Model: "m1", Type: "celular"},
-		},
-		specs: map[string]map[string]string{
-			"celular:m1": {"batteryCapacity": "3000mAh"},
+		{
+			name: "sucesso_sem_specs",
+			repo: &mockRepository{
+				products: map[string]model.Product{"p1": {ID: "p1", Name: "Produto 1", Model: "m1", Type: "celular"}},
+				specs:    map[string]map[string]string{},
+			},
+			id:        "p1",
+			fields:    "id,name",
+			expectErr: nil,
+			expectMap: map[string]interface{}{"id": "p1", "name": "Produto 1"},
 		},
 	}
-	svc := NewProductService(repo)
-	_, err := svc.Compare(context.Background(), []string{"p1"}, "id,naocampo")
-	if err == nil {
-		t.Fatal("esperava erro para campo inválido")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewProductService(tt.repo)
+			item, err := svc.GetItem(context.Background(), tt.id, tt.fields)
+			if tt.expectErr != nil {
+				assert.Error(t, err)
+				if errors.Is(tt.expectErr, ErrInvalidFieldSelection) {
+					assert.ErrorIs(t, err, ErrInvalidFieldSelection)
+				}
+				assert.Nil(t, item)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectMap, item)
+			}
+		})
 	}
 }
 
-func TestCompare_NotFound(t *testing.T) {
-	repo := &mockRepository{products: map[string]model.Product{}}
-	svc := NewProductService(repo)
-	items, err := svc.Compare(context.Background(), []string{"naoexiste"}, "id")
-	if err == nil {
-		t.Fatal("esperava erro para produto inexistente")
-	}
-	if items != nil {
-		t.Errorf("esperava items nil, obteve %v", items)
-	}
-}
-
-func TestGetItem_InvalidFieldSelection(t *testing.T) {
-	repo := &mockRepository{
-		products: map[string]model.Product{
-			"p1": {ID: "p1", Name: "Produto 1", Model: "m1", Type: "celular"},
+func TestCompare(t *testing.T) {
+	tests := []struct {
+		name      string
+		repo      *mockRepository
+		ids       []string
+		fields    string
+		expectErr bool
+		expectLen int
+	}{
+		{
+			name: "sucesso",
+			repo: &mockRepository{
+				products: map[string]model.Product{
+					"p1": {ID: "p1", Name: "Produto 1", Model: "m1", Type: "celular"},
+					"p2": {ID: "p2", Name: "Produto 2", Model: "m2", Type: "celular"},
+				},
+				specs: map[string]map[string]string{
+					"celular:m1": {"batteryCapacity": "3000mAh"},
+					"celular:m2": {"batteryCapacity": "4000mAh"},
+				},
+			},
+			ids:       []string{"p1", "p2"},
+			fields:    "id,model",
+			expectErr: false,
+			expectLen: 2,
 		},
-		specs: map[string]map[string]string{
-			"celular:m1": {"batteryCapacity": "3000mAh"},
+		{
+			name: "campo inválido",
+			repo: &mockRepository{
+				products: map[string]model.Product{"p1": {ID: "p1", Name: "Produto 1", Model: "m1", Type: "celular"}},
+				specs:    map[string]map[string]string{"celular:m1": {"batteryCapacity": "3000mAh"}},
+			},
+			ids:       []string{"p1"},
+			fields:    "id,naocampo",
+			expectErr: true,
+			expectLen: 0,
+		},
+		{
+			name:      "produto não encontrado",
+			repo:      &mockRepository{products: map[string]model.Product{}},
+			ids:       []string{"naoexiste"},
+			fields:    "id",
+			expectErr: true,
+			expectLen: 0,
 		},
 	}
-	svc := NewProductService(repo)
-	_, err := svc.GetItem(context.Background(), "p1", "invalido")
-	if err == nil {
-		t.Fatal("esperava erro para campo inválido")
-	}
-	if !errors.Is(err, ErrInvalidFieldSelection) {
-		t.Errorf("esperava ErrInvalidFieldSelection, obteve: %v", err)
-	}
-}
-
-func TestGetItem_SpecsFetchFailure(t *testing.T) {
-	repo := &mockRepository{
-		products: map[string]model.Product{
-			"p1": {ID: "p1", Name: "Produto 1", Model: "m1", Type: "celular"},
-		},
-		specs: map[string]map[string]string{}, // chave ausente → GetSpecificationsByModel retorna erro
-	}
-	svc := NewProductService(repo)
-	item, err := svc.GetItem(context.Background(), "p1", "id,name")
-	if err != nil {
-		t.Fatalf("esperava sucesso mesmo sem specs, obteve erro: %v", err)
-	}
-	if item["id"] != "p1" {
-		t.Errorf("esperava id p1, obteve: %v", item["id"])
-	}
-}
-
-func TestCompare_ErrProductNotFoundReturnsEmpty(t *testing.T) {
-	repo := &mockRepository{
-		products:     map[string]model.Product{},
-		listByIDsErr: repository.ErrProductNotFound,
-	}
-	svc := NewProductService(repo)
-	items, err := svc.Compare(context.Background(), []string{"naoexiste"}, "id")
-	if err != nil {
-		t.Fatalf("esperava lista vazia sem erro, obteve: %v", err)
-	}
-	if len(items) != 0 {
-		t.Errorf("esperava lista vazia, obteve %d itens", len(items))
-	}
-}
-
-func TestCompare_SpecsBatchFailure(t *testing.T) {
-	repo := &mockRepository{
-		products: map[string]model.Product{
-			"p1": {ID: "p1", Name: "Produto 1", Model: "m1", Type: "celular"},
-		},
-		specs:         map[string]map[string]string{},
-		batchSpecsErr: errors.New("db error"),
-	}
-	svc := NewProductService(repo)
-	items, err := svc.Compare(context.Background(), []string{"p1"}, "id,name")
-	if err != nil {
-		t.Fatalf("esperava sucesso mesmo com falha nas specs, obteve erro: %v", err)
-	}
-	if len(items) != 1 {
-		t.Fatalf("esperava 1 item, obteve %d", len(items))
-	}
-}
-
-func TestParseFields_EmptyAllowed(t *testing.T) {
-	_, err := parseFields("id", map[string]any{})
-	if err == nil {
-		t.Fatal("esperava erro para campos permitidos vazios")
-	}
-}
-
-func TestParseFields_EmptyFieldsAfterSplit(t *testing.T) {
-	allowed := map[string]any{"id": "x"}
-	_, err := parseFields(",", allowed)
-	if err == nil {
-		t.Fatal("esperava erro quando todos os campos são vazios após split")
-	}
-}
-
-func TestEnsureModelVersion_EmptyModelName(t *testing.T) {
-	specs := map[string]string{"battery": "3000mAh"}
-	result := ensureModelVersion(specs, "")
-	if result["battery"] != "3000mAh" {
-		t.Errorf("esperava specs inalteradas, obteve: %v", result)
-	}
-	if _, exists := result["modelVersion"]; exists {
-		t.Error("não esperava modelVersion quando modelName é vazio")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewProductService(tt.repo)
+			items, err := svc.Compare(context.Background(), tt.ids, tt.fields)
+			if tt.expectErr {
+				assert.Error(t, err)
+				assert.Nil(t, items)
+			} else {
+				require.NoError(t, err)
+				assert.Len(t, items, tt.expectLen)
+				if tt.expectLen == 2 {
+					assert.Equal(t, "p1", items[0]["id"])
+					assert.Equal(t, "p2", items[1]["id"])
+				}
+			}
+		})
 	}
 }

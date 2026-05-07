@@ -3,78 +3,45 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"os"
 	"testing"
 
 	"comparify/internal/model"
 
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-const testSchema = `
-CREATE TABLE IF NOT EXISTS products (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    image_url TEXT,
-    description TEXT,
-    price REAL NOT NULL,
-    rating REAL,
-    size TEXT,
-    weight TEXT,
-    color TEXT,
-    type TEXT NOT NULL,
-    model TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS product_type_specs (
-    product_type TEXT PRIMARY KEY,
-    specs_table TEXT NOT NULL UNIQUE
-);
-INSERT OR IGNORE INTO product_type_specs (product_type, specs_table) VALUES
-    ('celular', 'smartphone_specs'),
-    ('geladeira', 'fridge_specs'),
-    ('micro-ondas', 'microwave_specs'),
-    ('caixa de som', 'speaker_specs');
-CREATE TABLE IF NOT EXISTS smartphone_specs (
-    model TEXT PRIMARY KEY,
-    battery_capacity TEXT,
-    camera_specs TEXT,
-    memory TEXT,
-    storage_capacity TEXT,
-    brand TEXT,
-    operating_system TEXT
-);
-CREATE TABLE IF NOT EXISTS fridge_specs (
-    model TEXT PRIMARY KEY,
-    capacity TEXT,
-    energy_class TEXT,
-    brand TEXT
-);
-CREATE TABLE IF NOT EXISTS microwave_specs (
-    model TEXT PRIMARY KEY,
-    capacity TEXT,
-    power TEXT,
-    brand TEXT
-);
-CREATE TABLE IF NOT EXISTS speaker_specs (
-    model TEXT PRIMARY KEY,
-    battery_capacity TEXT,
-    connectivity TEXT,
-    brand TEXT
-);`
-
-func setupTestDB(t *testing.T) *sql.DB {
+func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
-		t.Fatalf("open test db: %v", err)
+		require.NoError(t, err)
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-	if _, err := db.Exec(testSchema); err != nil {
-		db.Close()
-		t.Fatalf("setup schema: %v", err)
-	}
 	t.Cleanup(func() { db.Close() })
 	return db
+}
+
+func setupTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db := openTestDB(t)
+	schema, err := os.ReadFile("../../data/schema.sql")
+	require.NoError(t, err)
+	require.NoError(t, MigrateSchema(db, string(schema)))
+	return db
+}
+
+func TestMigrateSchema(t *testing.T) {
+	db := openTestDB(t)
+
+	err := MigrateSchema(db, `CREATE TABLE IF NOT EXISTS schema_test (id TEXT PRIMARY KEY);`)
+	require.NoError(t, err)
+
+	_, err = db.Exec(`INSERT INTO schema_test (id) VALUES ('ok')`)
+	require.NoError(t, err)
 }
 
 func seedTestProduct(t *testing.T, db *sql.DB, product model.Product) {
@@ -108,224 +75,157 @@ func TestNewSQLiteRepository(t *testing.T) {
 	}
 }
 
-func TestListByIDs_Empty(t *testing.T) {
+func TestSQLiteRepository_ListByIDs(t *testing.T) {
 	db := setupTestDB(t)
 	repo := NewSQLiteRepository(db)
-
-	products, err := repo.ListByIDs(context.Background(), []string{})
-	if err != nil {
-		t.Fatalf("esperava sucesso, obteve erro: %v", err)
-	}
-	if len(products) != 0 {
-		t.Errorf("esperava lista vazia, obteve %d produtos", len(products))
-	}
-}
-
-func TestListByIDs_Success(t *testing.T) {
-	db := setupTestDB(t)
-	repo := NewSQLiteRepository(db)
-
 	seedTestProduct(t, db, model.Product{ID: "p1", Name: "Produto 1", Price: 1000, Type: "celular", Model: "m1"})
 	seedTestProduct(t, db, model.Product{ID: "p2", Name: "Produto 2", Price: 2000, Type: "celular", Model: "m2"})
-
-	products, err := repo.ListByIDs(context.Background(), []string{"p1", "p2"})
-	if err != nil {
-		t.Fatalf("esperava sucesso, obteve erro: %v", err)
+	tests := []struct {
+		name    string
+		ids     []string
+		wantIDs []string
+		wantErr error
+	}{
+		{"vazio", []string{}, nil, nil},
+		{"dois produtos na ordem", []string{"p1", "p2"}, []string{"p1", "p2"}, nil},
+		{"dois produtos ordem invertida", []string{"p2", "p1"}, []string{"p2", "p1"}, nil},
+		{"produto inexistente", []string{"naoexiste"}, nil, ErrProductNotFound},
 	}
-	if len(products) != 2 {
-		t.Fatalf("esperava 2 produtos, obteve %d", len(products))
-	}
-	if products[0].ID != "p1" || products[1].ID != "p2" {
-		t.Errorf("ordem dos produtos não preservada: %v", []string{products[0].ID, products[1].ID})
-	}
-}
-
-func TestListByIDs_OrderPreserved(t *testing.T) {
-	db := setupTestDB(t)
-	repo := NewSQLiteRepository(db)
-
-	seedTestProduct(t, db, model.Product{ID: "p1", Name: "Produto 1", Price: 1000, Type: "celular", Model: "m1"})
-	seedTestProduct(t, db, model.Product{ID: "p2", Name: "Produto 2", Price: 2000, Type: "celular", Model: "m2"})
-
-	// Solicitar na ordem inversa
-	products, err := repo.ListByIDs(context.Background(), []string{"p2", "p1"})
-	if err != nil {
-		t.Fatalf("esperava sucesso, obteve erro: %v", err)
-	}
-	if products[0].ID != "p2" || products[1].ID != "p1" {
-		t.Errorf("esperava ordem p2,p1 mas obteve: %s,%s", products[0].ID, products[1].ID)
-	}
-}
-
-func TestListByIDs_NotFound(t *testing.T) {
-	db := setupTestDB(t)
-	repo := NewSQLiteRepository(db)
-
-	_, err := repo.ListByIDs(context.Background(), []string{"naoexiste"})
-	if err == nil {
-		t.Fatal("esperava erro para produto inexistente")
-	}
-	if err != ErrProductNotFound {
-		t.Errorf("esperava ErrProductNotFound, obteve: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			products, err := repo.ListByIDs(context.Background(), tt.ids)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				assert.Empty(t, products)
+			} else {
+				require.NoError(t, err)
+				if tt.wantIDs != nil {
+					ids := make([]string, len(products))
+					for i, p := range products {
+						ids[i] = p.ID
+					}
+					assert.Equal(t, tt.wantIDs, ids)
+				} else {
+					assert.Empty(t, products)
+				}
+			}
+		})
 	}
 }
 
-func TestGetByID_Success(t *testing.T) {
+func TestSQLiteRepository_GetByID(t *testing.T) {
 	db := setupTestDB(t)
 	repo := NewSQLiteRepository(db)
-
 	seedTestProduct(t, db, model.Product{ID: "p1", Name: "Produto Teste", Price: 999.90, Type: "celular", Model: "m1"})
-
-	product, err := repo.GetByID(context.Background(), "p1")
-	if err != nil {
-		t.Fatalf("esperava sucesso, obteve erro: %v", err)
+	tests := []struct {
+		name    string
+		id      string
+		wantID  string
+		wantErr error
+	}{
+		{"produto existe", "p1", "p1", nil},
+		{"produto não existe", "naoexiste", "", ErrProductNotFound},
 	}
-	if product.ID != "p1" || product.Name != "Produto Teste" {
-		t.Errorf("produto retornado incorreto: %+v", product)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			product, err := repo.GetByID(context.Background(), tt.id)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantID, product.ID)
+			}
+		})
 	}
 }
 
-func TestGetByID_NotFound(t *testing.T) {
+func TestSQLiteRepository_SeedSQLite(t *testing.T) {
 	db := setupTestDB(t)
-	repo := NewSQLiteRepository(db)
-
-	_, err := repo.GetByID(context.Background(), "naoexiste")
-	if err == nil {
-		t.Fatal("esperava erro para produto inexistente")
-	}
-	if err != ErrProductNotFound {
-		t.Errorf("esperava ErrProductNotFound, obteve: %v", err)
-	}
-}
-
-func TestSeedSQLite_Success(t *testing.T) {
-	db := setupTestDB(t)
-
-	products := []model.Product{
-		{
-			ID:    "s1",
-			Name:  "Smartphone Seed",
-			Price: 2500,
-			Type:  "celular",
-			Model: "modelS1",
-			Specifications: map[string]string{
-				"batteryCapacity": "4000mAh",
-				"brand":           "TestBrand",
-			},
-		},
-	}
-
-	if err := SeedSQLite(context.Background(), db, products); err != nil {
-		t.Fatalf("esperava seed bem-sucedido, obteve erro: %v", err)
-	}
-
+	products := []model.Product{{ID: "s1", Name: "Smartphone Seed", Price: 2500, Type: "celular", Model: "modelS1", Specifications: map[string]string{"batteryCapacity": "4000mAh", "brand": "TestBrand"}}}
+	err := SeedSQLite(context.Background(), db, products)
+	require.NoError(t, err)
 	repo := NewSQLiteRepository(db)
 	product, err := repo.GetByID(context.Background(), "s1")
-	if err != nil {
-		t.Fatalf("produto seedado não encontrado: %v", err)
-	}
-	if product.Name != "Smartphone Seed" {
-		t.Errorf("nome incorreto: %s", product.Name)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "Smartphone Seed", product.Name)
 }
 
-func TestGetSpecificationsByModel_Success(t *testing.T) {
+func TestSQLiteRepository_GetSpecificationsByModel(t *testing.T) {
 	db := setupTestDB(t)
 	repo := NewSQLiteRepository(db)
-
 	seedTestSmartphoneSpecs(t, db, "modelX", "5000mAh", "BrandX")
-
-	specs, err := repo.GetSpecificationsByModel(context.Background(), "modelX", "celular")
-	if err != nil {
-		t.Fatalf("esperava sucesso, obteve erro: %v", err)
+	tests := []struct {
+		name      string
+		model     string
+		typeProd  string
+		wantKey   string
+		wantValue string
+		wantEmpty bool
+	}{
+		{"modelo existente", "modelX", "celular", "battery_capacity", "5000mAh", false},
+		{"modelo inexistente", "naoexiste", "celular", "", "", true},
 	}
-	if specs["battery_capacity"] != "5000mAh" {
-		t.Errorf("esperava battery_capacity=5000mAh, obteve: %v", specs["battery_capacity"])
-	}
-}
-
-func TestGetSpecificationsByModel_ModelNotFound(t *testing.T) {
-	db := setupTestDB(t)
-	repo := NewSQLiteRepository(db)
-
-	specs, err := repo.GetSpecificationsByModel(context.Background(), "naoexiste", "celular")
-	if err != nil {
-		t.Fatalf("esperava mapa vazio sem erro, obteve: %v", err)
-	}
-	if len(specs) != 0 {
-		t.Errorf("esperava mapa vazio, obteve: %v", specs)
-	}
-}
-
-func TestGetSpecificationsBatch_Empty(t *testing.T) {
-	db := setupTestDB(t)
-	repo := NewSQLiteRepository(db)
-
-	result, err := repo.GetSpecificationsBatch(context.Background(), []string{}, "celular")
-	if err != nil {
-		t.Fatalf("esperava sucesso, obteve erro: %v", err)
-	}
-	if len(result) != 0 {
-		t.Errorf("esperava mapa vazio, obteve: %v", result)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			specs, err := repo.GetSpecificationsByModel(context.Background(), tt.model, tt.typeProd)
+			require.NoError(t, err)
+			if tt.wantEmpty {
+				assert.Empty(t, specs)
+			} else {
+				assert.Equal(t, tt.wantValue, specs[tt.wantKey])
+			}
+		})
 	}
 }
 
-func TestGetSpecificationsBatch_Success(t *testing.T) {
+func TestSQLiteRepository_GetSpecificationsBatch(t *testing.T) {
 	db := setupTestDB(t)
 	repo := NewSQLiteRepository(db)
-
 	seedTestSmartphoneSpecs(t, db, "modelA", "3000mAh", "BrandA")
 	seedTestSmartphoneSpecs(t, db, "modelB", "4000mAh", "BrandB")
-
-	result, err := repo.GetSpecificationsBatch(context.Background(), []string{"modelA", "modelB"}, "celular")
-	if err != nil {
-		t.Fatalf("esperava sucesso, obteve erro: %v", err)
+	tests := []struct {
+		name      string
+		models    []string
+		typeProd  string
+		wantLen   int
+		wantKey   string
+		wantValue string
+		wantErr   bool
+	}{
+		{"batch vazio", []string{}, "celular", 0, "", "", false},
+		{"batch sucesso", []string{"modelA", "modelB"}, "celular", 2, "modelA", "3000mAh", false},
+		{"tipo não suportado", []string{"m1"}, "tipo-invalido", 0, "", "", true},
 	}
-	if len(result) != 2 {
-		t.Fatalf("esperava 2 modelos, obteve %d", len(result))
-	}
-	if result["modelA"]["battery_capacity"] != "3000mAh" {
-		t.Errorf("specs de modelA incorretas: %v", result["modelA"])
-	}
-}
-
-func TestGetSpecificationsBatch_UnsupportedType(t *testing.T) {
-	db := setupTestDB(t)
-	repo := NewSQLiteRepository(db)
-
-	_, err := repo.GetSpecificationsBatch(context.Background(), []string{"m1"}, "tipo-invalido")
-	if err == nil {
-		t.Fatal("esperava erro para tipo de produto não suportado")
-	}
-}
-
-func TestResolveProductModel_FromModel(t *testing.T) {
-	product := model.Product{ID: "p1", Name: "Nome", Model: "  modelX  "}
-	result := resolveProductModel(product)
-	if result != "modelX" {
-		t.Errorf("esperava 'modelX', obteve: %s", result)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := repo.GetSpecificationsBatch(context.Background(), tt.models, tt.typeProd)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Len(t, result, tt.wantLen)
+				if tt.wantKey != "" && tt.wantValue != "" {
+					assert.Equal(t, tt.wantValue, result[tt.wantKey]["battery_capacity"])
+				}
+			}
+		})
 	}
 }
 
-func TestResolveProductModel_FromModelVersion(t *testing.T) {
-	product := model.Product{
-		ID:    "p1",
-		Name:  "Nome",
-		Model: "",
-		Specifications: map[string]string{
-			"modelVersion": "versionY",
-		},
+func TestSQLiteRepository_ResolveProductModel(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    model.Product
+		expected string
+	}{
+		{"usa Model", model.Product{ID: "p1", Name: "Nome", Model: "  modelX  "}, "modelX"},
+		{"usa modelVersion", model.Product{ID: "p1", Name: "Nome", Model: "", Specifications: map[string]string{"modelVersion": "versionY"}}, "versionY"},
+		{"usa Name", model.Product{ID: "p1", Name: "  Produto Nome  ", Model: ""}, "Produto Nome"},
 	}
-	result := resolveProductModel(product)
-	if result != "versionY" {
-		t.Errorf("esperava 'versionY', obteve: %s", result)
-	}
-}
-
-func TestResolveProductModel_FromName(t *testing.T) {
-	product := model.Product{ID: "p1", Name: "  Produto Nome  ", Model: ""}
-	result := resolveProductModel(product)
-	if result != "Produto Nome" {
-		t.Errorf("esperava 'Produto Nome', obteve: %s", result)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := resolveProductModel(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
 	}
 }
