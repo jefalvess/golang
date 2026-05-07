@@ -7,7 +7,6 @@ import (
 
 	"comparify/internal/model"
 	"comparify/internal/repository"
-	"comparify/pkg/logger"
 )
 
 type mockRepository struct {
@@ -236,9 +235,4 @@ func TestEnsureModelVersion_EmptyModelName(t *testing.T) {
 	if _, exists := result["modelVersion"]; exists {
 		t.Error("não esperava modelVersion quando modelName é vazio")
 	}
-}
-
-func TestMain(m *testing.M) {
-	logger.Init()
-	m.Run()
 }
