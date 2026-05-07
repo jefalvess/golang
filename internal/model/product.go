@@ -15,6 +15,7 @@ type Product struct {
 	Type           string            `json:"type"`
 }
 
+// FieldMap define o conjunto de campos públicos que pode ser projetado pela API.
 func (p Product) FieldMap() map[string]any {
 	return map[string]any{
 		"id":             p.ID,

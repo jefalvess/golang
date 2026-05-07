@@ -3,8 +3,8 @@
 ```mermaid
 graph TD
   A[Cliente] -->|HTTP| B[Handler]
-  B --> C[Service]
-  C --> D[Repository]
+  B --> C[Service (interface)]
+  C --> D[Repository (interface)]
   D --> E[(SQLite em memória)]
   E --> T1[products]
   E --> T2[smartphone_specs]
@@ -30,35 +30,45 @@ API backend em Go para comparação de produtos, seguindo boas práticas de arqu
 Esta API permite consultar detalhes de produtos e realizar comparações flexíveis, retornando apenas os campos desejados pelo cliente. O modelo de produto cobre atributos essenciais e permite extensões para especificações especializadas (ex: smartphones).
 
 **Principais características:**
-- Filtros multi-valor para marca (`brand`) e cor (`color`)
+- Seleção explícita de itens por `ids`
 - Projeção de campos via parâmetro `fields`
 - Logging estruturado com níveis (info, warn, error) usando zap
 - Tratamento consistente de erros
-- Arquitetura modular (handler, service, repository, utils)
+- Arquitetura modular (handler, service.Service, repository.Repository, utils)
+- Contratos de interface claros para service e repository
 - Documentação e exemplos completos
 
 ---
 
 
-## Filtros avançados
+## Comparação de Itens
 
-Você pode filtrar por múltiplos valores em cada campo (`brand` e `color`), separando-os por vírgula. É possível combinar ambos os filtros no mesmo request:
+Com base no enunciado, a comparação é feita entre itens específicos. O endpoint de comparação aceita somente estes parâmetros:
 
-Exemplo:
+| Parâmetro | Tipo | Exemplo | Observação |
+|---|---|---|---|
+| `ids` | seleção explícita | `ids=phone-1,phone-2` | obrigatório para o endpoint de comparação |
+| `fields` | projeção | `fields=id,name,price` | não filtra; apenas limita os campos retornados |
+
+Regras de uso:
+
+- `ids` é obrigatório no endpoint de comparação.
+- os ids devem ser enviados separados por vírgula.
+- `fields` é opcional.
+- Qualquer outro parâmetro de query no endpoint de compare retorna erro `400`.
 
 ```bash
-curl "http://localhost:8080/items/compare?brand=Atlas,Nimbus&color=Black,Silver&fields=id,name,price,color,specifications"
+curl "http://localhost:8080/v1/items/compare?ids=phone-1,phone-2&fields=id,name,price,specifications"
 ```
 
-Esse exemplo retorna todos os produtos das marcas Atlas ou Nimbus e com cor Black ou Silver.
+Esse exemplo retorna exatamente os itens informados em `ids`, com apenas os campos pedidos em `fields`.
 
 ---
 
 ## Endpoints
 
-- `GET /health`: health check simples.
-- `GET /items/{id}`: retorna um item por ID. Use `fields=...` para limitar os campos retornados.
-- `GET /items/compare?brand=...&color=...&fields=...`: retorna múltiplos itens filtrados para comparação.
+- `GET /v1/items/{id}`: retorna um item por ID. Use `fields=...` para limitar os campos retornados.
+- `GET /v1/items/compare?ids=...&fields=...`: retorna itens específicos para comparação.
 
 **Exemplo de erro:**
 
@@ -67,6 +77,17 @@ Esse exemplo retorna todos os produtos das marcas Atlas ou Nimbus e com cor Blac
   "error": {
     "message": "item not found",
     "status": 404
+  }
+}
+```
+
+**Exemplo de erro por seleção inválida no compare:**
+
+```json
+{
+  "error": {
+    "message": "ids query parameter is required",
+    "status": 400
   }
 }
 ```
@@ -94,13 +115,20 @@ Campos essenciais (tabela `products`):
 
 ## Estrutura do Banco de Dados
 
-O banco SQLite em memória é composto por uma tabela principal e quatro tabelas de especificações especializadas, relacionadas por `product_id`. O campo `model` fica na tabela `products`, evitando duplicar esse dado nas tabelas de especificações.
+O banco SQLite em memória é composto por uma tabela principal, uma tabela de metadados por tipo e quatro tabelas de especificações especializadas. As especificações são reutilizadas por `model`, evitando duplicação por `product_id`.
+
+### `product_type_specs`
+
+| Campo | Tipo | Descrição |
+|---|---|---|
+| `product_type` | TEXT (PK) | Tipo do produto |
+| `specs_table` | TEXT | Nome da tabela de especificações daquele tipo |
 
 ### `smartphone_specs`
 
 | Campo | Tipo | Descrição |
 |---|---|---|
-| `product_id` | TEXT (PK/FK) | Referência ao produto |
+| `model` | TEXT (PK) | Modelo comercial do produto |
 | `battery_capacity` | TEXT | Capacidade da bateria |
 | `camera_specs` | TEXT | Especificações de câmera |
 | `memory` | TEXT | Memória RAM |
@@ -112,7 +140,7 @@ O banco SQLite em memória é composto por uma tabela principal e quatro tabelas
 
 | Campo | Tipo | Descrição |
 |---|---|---|
-| `product_id` | TEXT (PK/FK) | Referência ao produto |
+| `model` | TEXT (PK) | Modelo comercial do produto |
 | `capacity` | TEXT | Capacidade em litros |
 | `energy_class` | TEXT | Classificação energética |
 | `brand` | TEXT | Marca |
@@ -121,7 +149,7 @@ O banco SQLite em memória é composto por uma tabela principal e quatro tabelas
 
 | Campo | Tipo | Descrição |
 |---|---|---|
-| `product_id` | TEXT (PK/FK) | Referência ao produto |
+| `model` | TEXT (PK) | Modelo comercial do produto |
 | `capacity` | TEXT | Capacidade em litros |
 | `power` | TEXT | Potência em Watts |
 | `brand` | TEXT | Marca |
@@ -130,18 +158,16 @@ O banco SQLite em memória é composto por uma tabela principal e quatro tabelas
 
 | Campo | Tipo | Descrição |
 |---|---|---|
-| `product_id` | TEXT (PK/FK) | Referência ao produto |
+| `model` | TEXT (PK) | Modelo comercial do produto |
 | `battery_capacity` | TEXT | Autonomia da bateria |
 | `connectivity` | TEXT | Conectividade (Bluetooth, etc.) |
 | `brand` | TEXT | Marca |
-
-> Índices criados em `color` e `type` na tabela `products`, e em `brand` em todas as tabelas de specs, garantindo buscas eficientes nos filtros do endpoint `/items/compare`.
 
 ---
 
 ## Decisões Arquiteturais
 
-- Go 1.22, `net/http` para simplicidade e performance
+- Go 1.22 e Echo para roteamento HTTP
 - Persistência simulada: SQLite em memória, seed via JSON
 - Logging estruturado com zap (níveis info, warn, error)
 - Repository pattern para desacoplamento
@@ -173,31 +199,19 @@ CGO_ENABLED=1 PORT=8080 go run ./cmd
 
 ```bash
 # Buscar um item específico
-curl "http://localhost:8080/items/phone-1"
+curl "http://localhost:8080/v1/items/phone-1"
 
-# Comparar todos os produtos das marcas Atlas ou Nimbus
-curl "http://localhost:8080/items/compare?brand=Atlas,Nimbus&fields=id,name,price,color,specifications"
+# Comparar itens específicos por ids
+curl "http://localhost:8080/v1/items/compare?ids=phone-1,phone-2&fields=id,name,price,specifications"
 
-# Comparar todos os produtos com cor Black
-curl "http://localhost:8080/items/compare?color=Black&fields=name,price,specifications"
+# Exemplo com projeção mínima de campos
+curl "http://localhost:8080/v1/items/compare?ids=phone-1,phone-2&fields=name,price"
 
-# Comparar todos os produtos com cor White
-curl "http://localhost:8080/items/compare?color=White&fields=name,price,specifications"
+# Exemplo inválido: ids é obrigatório no compare
+curl "http://localhost:8080/v1/items/compare?fields=name,price"
 
-# Comparar todos os produtos da marca Pulse (caixa de som)
-curl "http://localhost:8080/items/compare?brand=Pulse&fields=name,price,color,specifications"
-
-# Comparar todos os produtos da marca QuickHeat (micro-ondas)
-curl "http://localhost:8080/items/compare?brand=QuickHeat&fields=name,price,color,specifications"
-
-# Comparar todos os produtos das marcas Cooler ou Arctic (geladeiras)
-curl "http://localhost:8080/items/compare?brand=Cooler,Arctic&fields=name,price,color,specifications"
-
-# Comparar todos os produtos com cor Silver
-curl "http://localhost:8080/items/compare?color=Silver&fields=name,price,specifications"
-
-# Comparar produtos das marcas Atlas ou Nimbus e cor Silver
-curl "http://localhost:8080/items/compare?brand=Atlas,Nimbus&color=Silver&fields=name,price,color,specifications"
+# Exemplo inválido: parâmetro não suportado
+curl "http://localhost:8080/v1/items/compare?type=celular&fields=name,price"
 ```
 
 ---
@@ -215,5 +229,5 @@ go test ./...
 ## Observações
 
 - Logging estruturado (zap) já configurado, com níveis e campos para fácil integração com sistemas de monitoramento.
-- O projeto pode ser facilmente estendido para outros tipos de produtos e filtros.
+- O projeto pode ser facilmente estendido para outros tipos de produtos.
 - Todos os requisitos funcionais e não-funcionais do desafio estão cobertos.

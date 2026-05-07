@@ -6,20 +6,17 @@ import (
 	"net/http"
 
 	"comparify/internal/repository"
+	"comparify/pkg/utils"
 
 	"github.com/labstack/echo/v4"
 )
 
 type Handler struct {
-	Service *service.ProductService
+	productService service.Service
 }
 
-func NewHandler(svc *service.ProductService) *Handler {
-	return &Handler{Service: svc}
-}
-
-func (h *Handler) Health(c echo.Context) error {
-	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+func NewHandler(svc service.Service) *Handler {
+	return &Handler{productService: svc}
 }
 
 func (h *Handler) GetItem(c echo.Context) error {
@@ -28,7 +25,7 @@ func (h *Handler) GetItem(c echo.Context) error {
 		return writeError(c, http.StatusNotFound, "item not found")
 	}
 
-	item, fields, err := h.Service.GetItem(itemID, c.QueryParam("fields"))
+	item, err := h.productService.GetItem(c.Request().Context(), itemID, c.QueryParam("fields"))
 	if err != nil {
 		switch {
 		case errors.Is(err, repository.ErrProductNotFound):
@@ -41,33 +38,63 @@ func (h *Handler) GetItem(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"item":            item,
-		"requestedFields": fields,
+		"item": item,
 	})
 }
 
 func (h *Handler) Compare(c echo.Context) error {
-	filters := make(map[string]string)
-	for _, key := range []string{"brand", "color"} {
-		if v := c.QueryParam(key); v != "" {
-			filters[key] = v
-		}
+	ids, err := readCompareSelection(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, err.Error())
 	}
 
-	items, fields, err := h.Service.Compare(filters, c.QueryParam("fields"))
+	items, err := h.productService.Compare(c.Request().Context(), ids, c.QueryParam("fields"))
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidFieldSelection) {
 			return writeError(c, http.StatusBadRequest, err.Error())
+		}
+		if errors.Is(err, repository.ErrProductNotFound) {
+			return writeError(c, http.StatusNotFound, "items not found")
 		}
 
 		return writeError(c, http.StatusInternalServerError, "failed to load items")
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"items":           items,
-		"requestedFields": fields,
-		"count":           len(items),
+		"items": items,
+		"count": len(items),
 	})
+}
+
+// readCompareSelection mantém o contrato do compare explícito: apenas ids conhecidos
+// e projeção opcional de campos. Qualquer outro parâmetro é tratado como erro.
+func readCompareSelection(c echo.Context) ([]string, error) {
+	queryParams := c.QueryParams()
+	for queryKey := range queryParams {
+		if !isSupportedCompareQueryKey(queryKey) {
+			return nil, errors.New("unsupported compare query parameter: " + queryKey)
+		}
+	}
+
+	idsRaw := c.QueryParam("ids")
+	ids := utils.SplitAndTrim(idsRaw, ",")
+	if idsRaw == "" {
+		return nil, errors.New("ids query parameter is required")
+	}
+	if len(ids) == 0 {
+		return nil, errors.New("ids query parameter must include at least one valid id")
+	}
+
+	return ids, nil
+}
+
+func isSupportedCompareQueryKey(queryKey string) bool {
+	switch queryKey {
+	case "ids", "fields":
+		return true
+	default:
+		return false
+	}
 }
 
 func writeError(c echo.Context, status int, message string) error {

@@ -2,12 +2,17 @@ package server
 
 import (
 	"comparify/internal/handler"
+	"context"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 )
 
-const apiVersionPrefix = "/v1"
+const (
+	apiVersionPrefix = "/v1"
+	requestTimeout   = 15 * time.Second
+)
 
 type Server struct {
 	echo    *echo.Echo
@@ -15,13 +20,8 @@ type Server struct {
 }
 
 func NewServer(productHandler *handler.Handler) *Server {
-	application := echo.New()
-	application.HideBanner = true
-	application.Use(middleware.Recover())
-	application.Use(middleware.RequestID())
-
 	server := &Server{
-		echo:    application,
+		echo:    newEchoApplication(),
 		handler: productHandler,
 	}
 	server.registerRoutes()
@@ -37,7 +37,31 @@ func (s *Server) registerRoutes() {
 	v1Group := s.echo.Group(apiVersionPrefix)
 	itemsGroup := v1Group.Group("/items")
 
-	v1Group.GET("/health", s.handler.Health)
 	itemsGroup.GET("/:id", s.handler.GetItem)
 	itemsGroup.GET("/compare", s.handler.Compare)
+}
+
+// newEchoApplication centraliza middleware comum para manter a criação do servidor previsível.
+func newEchoApplication() *echo.Echo {
+	application := echo.New()
+	application.HideBanner = true
+	application.Server.ReadTimeout = requestTimeout
+	application.Server.WriteTimeout = requestTimeout
+	application.Use(middleware.Recover())
+	application.Use(middleware.RequestID())
+	application.Use(requestTimeoutMiddleware(requestTimeout))
+
+	return application
+}
+
+// requestTimeoutMiddleware adiciona um deadline de timeout ao contexto de cada request.
+func requestTimeoutMiddleware(timeout time.Duration) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			ctx, cancel := context.WithTimeout(c.Request().Context(), timeout)
+			defer cancel()
+			c.SetRequest(c.Request().WithContext(ctx))
+			return next(c)
+		}
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"comparify/internal/repository"
 	"comparify/pkg/logger"
 	"comparify/pkg/utils"
+	"context"
 	"errors"
 	"fmt"
 	"sort"
@@ -16,25 +17,30 @@ type ProductService struct {
 	Repo repository.Repository
 }
 
+type specificationKey struct {
+	productType string
+	modelName   string
+}
+
 func NewProductService(repo repository.Repository) *ProductService {
 	return &ProductService{Repo: repo}
 }
 
-// GetItem retorna um produto por ID e os campos projetados
-func (s *ProductService) GetItem(id string, fieldsRaw string) (map[string]any, []string, error) {
+// GetItem retorna um produto por ID com os campos projetados.
+func (s *ProductService) GetItem(ctx context.Context, id string, fieldsRaw string) (map[string]any, error) {
 	start := time.Now()
 	logger.Logger.Infow("GetItem called",
 		"id", id,
 		"fieldsRaw", fieldsRaw,
 	)
-	product, err := s.Repo.GetByID(id)
+	product, err := s.Repo.GetByID(ctx, id)
 	if err != nil {
 		logger.Logger.Errorw("GetItem error",
 			"error", err,
 		)
-		return nil, nil, err
+		return nil, err
 	}
-	specs, err := s.Repo.GetSpecificationsByModel(product.Model, product.Type)
+	specs, err := s.Repo.GetSpecificationsByModel(ctx, product.Model, product.Type)
 	if err != nil {
 		logger.Logger.Warnw("GetItem: failed to fetch specifications",
 			"productID", product.ID,
@@ -43,17 +49,14 @@ func (s *ProductService) GetItem(id string, fieldsRaw string) (map[string]any, [
 			"error", err,
 		)
 	} else {
-		if _, exists := specs["modelVersion"]; !exists && product.Model != "" {
-			specs["modelVersion"] = product.Model
-		}
-		product.Specifications = specs
+		product.Specifications = ensureModelVersion(specs, product.Model)
 	}
 	fields, err := parseFields(fieldsRaw, product.FieldMap())
 	if err != nil {
 		logger.Logger.Warnw("GetItem parseFields error",
 			"error", err,
 		)
-		return nil, nil, fmt.Errorf("%w: %v", ErrInvalidFieldSelection, err)
+		return nil, fmt.Errorf("%w: %v", ErrInvalidFieldSelection, err)
 	}
 	elapsed := time.Since(start)
 	logger.Logger.Infow("GetItem success",
@@ -61,39 +64,38 @@ func (s *ProductService) GetItem(id string, fieldsRaw string) (map[string]any, [
 		"fields", fields,
 		"duration", elapsed,
 	)
-	return selectFields(product.FieldMap(), fields), fields, nil
+	return selectFields(product.FieldMap(), fields), nil
 }
 
-// Compare retorna produtos filtrados e os campos projetados
-func (s *ProductService) Compare(filters map[string]string, fieldsRaw string) ([]map[string]any, []string, error) {
+// Compare retorna itens específicos selecionados por ids com os campos projetados.
+func (s *ProductService) Compare(ctx context.Context, ids []string, fieldsRaw string) ([]map[string]any, error) {
 	start := time.Now()
 	logger.Logger.Infow("Compare called",
-		"filters", filters,
+		"ids", ids,
 		"fieldsRaw", fieldsRaw,
 	)
-	products, err := s.Repo.ListByFilters(filters)
+	products, err := s.Repo.ListByIDs(ctx, ids)
 	if err != nil && !errors.Is(err, repository.ErrProductNotFound) {
 		logger.Logger.Errorw("Compare error",
 			"error", err,
 		)
-		return nil, nil, err
+		return nil, err
 	}
 	if len(products) == 0 {
-		logger.Logger.Warnw("Compare: no products found",
-			"filters", filters,
-		)
-		return []map[string]any{}, []string{}, nil
+		logger.Logger.Warnw("Compare: no products found", "ids", ids)
+		return []map[string]any{}, nil
 	}
 	fields, err := parseFields(fieldsRaw, products[0].FieldMap())
 	if err != nil {
 		logger.Logger.Warnw("Compare parseFields error",
 			"error", err,
 		)
-		return nil, nil, fmt.Errorf("%w: %v", ErrInvalidFieldSelection, err)
+		return nil, fmt.Errorf("%w: %v", ErrInvalidFieldSelection, err)
 	}
 	items := make([]map[string]any, 0, len(products))
 
-	// Agrupa modelos por tabela de specs para reutilizar a mesma linha entre produtos iguais.
+	// Agrupa por tipo e modelo para buscar specs uma vez só, mesmo quando mais de um
+	// item comparado reutiliza a mesma linha de especificação.
 	modelsByType := make(map[string][]string)
 	seenModelsByType := make(map[string]map[string]struct{})
 	for _, product := range products {
@@ -107,9 +109,9 @@ func (s *ProductService) Compare(filters map[string]string, fieldsRaw string) ([
 		modelsByType[product.Type] = append(modelsByType[product.Type], product.Model)
 	}
 
-	specsByModelAndType := make(map[string]map[string]string)
+	specsByModelAndType := make(map[specificationKey]map[string]string)
 	for productType, models := range modelsByType {
-		specsBatch, batchErr := s.Repo.GetSpecificationsBatch(models, productType)
+		specsBatch, batchErr := s.Repo.GetSpecificationsBatch(ctx, models, productType)
 		if batchErr != nil {
 			logger.Logger.Warnw("Compare: failed to fetch specs batch",
 				"productType", productType,
@@ -118,28 +120,27 @@ func (s *ProductService) Compare(filters map[string]string, fieldsRaw string) ([
 			continue
 		}
 		for modelName, fetchedSpecs := range specsBatch {
-			if _, exists := fetchedSpecs["modelVersion"]; !exists && modelName != "" {
-				fetchedSpecs["modelVersion"] = modelName
-			}
-			specsByModelAndType[productType+"\x00"+modelName] = fetchedSpecs
+			specsByModelAndType[specificationKey{productType: productType, modelName: modelName}] = ensureModelVersion(fetchedSpecs, modelName)
 		}
 	}
 
 	for _, product := range products {
 		productMap := product.FieldMap()
-		productMap["specifications"] = specsByModelAndType[product.Type+"\x00"+product.Model]
+		productMap["specifications"] = specsByModelAndType[specificationKey{productType: product.Type, modelName: product.Model}]
 		items = append(items, selectFields(productMap, fields))
 	}
 	elapsed := time.Since(start)
 	logger.Logger.Infow("Compare success",
-		"filters", filters,
+		"ids", ids,
 		"fields", fields,
 		"count", len(items),
 		"duration", elapsed,
 	)
-	return items, fields, nil
+	return items, nil
 }
 
+// parseFields valida a projeção pedida pelo cliente contra os campos expostos pela API.
+// Quando nenhum campo é informado, devolve todos os campos disponíveis em ordem estável.
 func parseFields(raw string, allowed map[string]any) ([]string, error) {
 	if len(allowed) == 0 {
 		return nil, errors.New("no allowed fields")
@@ -172,10 +173,30 @@ func parseFields(raw string, allowed map[string]any) ([]string, error) {
 	return fields, nil
 }
 
+// selectFields aplica a projeção já validada sem reprocessar as regras de autorização.
 func selectFields(product map[string]any, fields []string) map[string]any {
 	selected := make(map[string]any, len(fields))
 	for _, field := range fields {
 		selected[field] = product[field]
 	}
 	return selected
+}
+
+// ensureModelVersion completa a resposta com modelVersion quando o seed usa model na
+// tabela principal, mas a linha de especificações não repete esse valor.
+func ensureModelVersion(specifications map[string]string, modelName string) map[string]string {
+	if specifications == nil {
+		return nil
+	}
+	if _, exists := specifications["modelVersion"]; exists || modelName == "" {
+		return specifications
+	}
+
+	completed := make(map[string]string, len(specifications)+1)
+	for key, value := range specifications {
+		completed[key] = value
+	}
+	completed["modelVersion"] = modelName
+
+	return completed
 }

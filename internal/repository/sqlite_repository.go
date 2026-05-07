@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -19,83 +20,56 @@ type productScanner interface {
 	Scan(dest ...any) error
 }
 
-func (r *SQLiteRepository) ListByFilters(filters map[string]string) ([]model.Product, error) {
-	var (
-		query string
-		args  []any
-	)
-	whereClauses := []string{}
-	for filterKey, filterValue := range filters {
-		filterValues := strings.Split(filterValue, ",")
-		valuePlaceholders := make([]string, len(filterValues))
-		for i := range filterValues {
-			valuePlaceholders[i] = "?"
-		}
-		switch filterKey {
-		case "brand":
-			// Consulta a tabela unificada product_brands — sem UNION entre tabelas de specs
-			brandPlaceholders := make([]string, len(filterValues))
-			for i := range filterValues {
-				brandPlaceholders[i] = "?"
-			}
-			whereClauses = append(whereClauses, fmt.Sprintf(
-				"id IN (SELECT product_id FROM product_brands WHERE brand IN (%s))",
-				join(brandPlaceholders, ","),
-			))
-			for _, brandValue := range filterValues {
-				args = append(args, strings.TrimSpace(brandValue))
-			}
-			continue
-		}
-		whereClauses = append(whereClauses, fmt.Sprintf("%s IN (%s)", filterKey, join(valuePlaceholders, ",")))
-		for _, filterVal := range filterValues {
-			args = append(args, strings.TrimSpace(filterVal))
-		}
-	}
-	query = "SELECT id, name, image_url, description, price, rating, size, weight, color, type, model FROM products"
-	if len(whereClauses) > 0 {
-		query += " WHERE " + join(whereClauses, " AND ")
-	}
-	products, err := r.queryProducts(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	if len(products) == 0 {
-		return nil, ErrProductNotFound
-	}
-	return products, nil
-}
-
 func NewSQLiteRepository(db *sql.DB) *SQLiteRepository {
 	return &SQLiteRepository{db: db}
 }
 
 const specsModelColumn = "model"
 
-func (r *SQLiteRepository) ListByIDs(ids []string) ([]model.Product, error) {
+func (r *SQLiteRepository) ListByIDs(ctx context.Context, ids []string) ([]model.Product, error) {
 	if len(ids) == 0 {
-		return nil, nil
+		return []model.Product{}, nil
 	}
+
 	placeholders := make([]string, len(ids))
 	args := make([]any, len(ids))
-	for i, id := range ids {
-		placeholders[i] = "?"
-		args[i] = id
+	for index, id := range ids {
+		placeholders[index] = "?"
+		args[index] = id
 	}
-	query := fmt.Sprintf("SELECT id, name, image_url, description, price, rating, size, weight, color, type, model FROM products WHERE id IN (%s)",
-		join(placeholders, ","))
-	products, err := r.queryProducts(query, args...)
+
+	query := fmt.Sprintf(
+		"SELECT id, name, image_url, description, price, rating, size, weight, color, type, model FROM products WHERE id IN (%s)",
+		strings.Join(placeholders, ","),
+	)
+	products, err := r.queryProducts(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	if len(products) != len(ids) {
 		return nil, ErrProductNotFound
 	}
-	return products, nil
+
+	productsByID := make(map[string]model.Product, len(products))
+	for _, product := range products {
+		productsByID[product.ID] = product
+	}
+
+	// O IN do SQLite não preserva a ordem de entrada; reordenamos para refletir o compare pedido.
+	orderedProducts := make([]model.Product, 0, len(ids))
+	for _, id := range ids {
+		product, ok := productsByID[id]
+		if !ok {
+			return nil, ErrProductNotFound
+		}
+		orderedProducts = append(orderedProducts, product)
+	}
+
+	return orderedProducts, nil
 }
 
-func (r *SQLiteRepository) GetByID(id string) (model.Product, error) {
-	row := r.db.QueryRow("SELECT id, name, image_url, description, price, rating, size, weight, color, type, model FROM products WHERE id = ?", id)
+func (r *SQLiteRepository) GetByID(ctx context.Context, id string) (model.Product, error) {
+	row := r.db.QueryRowContext(ctx, "SELECT id, name, image_url, description, price, rating, size, weight, color, type, model FROM products WHERE id = ?", id)
 	product, err := scanProduct(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -106,8 +80,8 @@ func (r *SQLiteRepository) GetByID(id string) (model.Product, error) {
 	return product, nil
 }
 
-func (r *SQLiteRepository) queryProducts(query string, args ...any) ([]model.Product, error) {
-	rows, err := r.db.Query(query, args...)
+func (r *SQLiteRepository) queryProducts(ctx context.Context, query string, args ...any) ([]model.Product, error) {
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -150,14 +124,9 @@ func scanProduct(scanner productScanner) (model.Product, error) {
 	return product, nil
 }
 
-// join builds a comma-separated placeholder string for SQL IN clauses.
-func join(strs []string, sep string) string {
-	return strings.Join(strs, sep)
-}
-
 // SeedSQLite insere produtos de seed no banco SQLite dentro de uma única transação.
-func SeedSQLite(db *sql.DB, products []model.Product) error {
-	tx, err := db.Begin()
+func SeedSQLite(ctx context.Context, db *sql.DB, products []model.Product) error {
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin seed transaction: %w", err)
 	}
@@ -198,6 +167,7 @@ func SeedSQLite(db *sql.DB, products []model.Product) error {
 			return err
 		}
 		modelName := resolveProductModel(product)
+		// O produto sempre ganha sua própria linha, mas as specs são reaproveitadas por model.
 		_, err = tx.Exec(`INSERT INTO products (id, name, image_url, description, price, rating, size, weight, color, type, model)
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			product.ID, product.Name, product.ImageURL, product.Description, product.Price,
@@ -208,15 +178,12 @@ func SeedSQLite(db *sql.DB, products []model.Product) error {
 		if err := specsInserters[specsTable](tx, product); err != nil {
 			return fmt.Errorf("failed to insert specs for product %s: %w", product.ID, err)
 		}
-		if _, err := tx.Exec(`INSERT INTO product_brands (product_id, brand) VALUES (?, ?)`,
-			product.ID, product.Specifications["brand"]); err != nil {
-			return fmt.Errorf("failed to insert brand for product %s: %w", product.ID, err)
-		}
 	}
 
 	return tx.Commit()
 }
 
+// resolveProductModel normaliza a chave usada para reaproveitar especificações por modelo.
 func resolveProductModel(product model.Product) string {
 	if strings.TrimSpace(product.Model) != "" {
 		return strings.TrimSpace(product.Model)
@@ -229,8 +196,8 @@ func resolveProductModel(product model.Product) string {
 	return strings.TrimSpace(product.Name)
 }
 
-func (r *SQLiteRepository) GetSpecificationsByModel(modelName, productType string) (map[string]string, error) {
-	batch, err := r.GetSpecificationsBatch([]string{modelName}, productType)
+func (r *SQLiteRepository) GetSpecificationsByModel(ctx context.Context, modelName, productType string) (map[string]string, error) {
+	batch, err := r.GetSpecificationsBatch(ctx, []string{modelName}, productType)
 	if err != nil {
 		return nil, err
 	}
@@ -244,11 +211,11 @@ func (r *SQLiteRepository) GetSpecificationsByModel(modelName, productType strin
 // GetSpecificationsBatch busca specs de múltiplos modelos da mesma tabela em uma única query.
 // A tabela é derivada diretamente do tipo do produto.
 // Retorna map[model]map[coluna]valor — reutiliza a mesma linha de specs para vários produtos.
-func (r *SQLiteRepository) GetSpecificationsBatch(models []string, productType string) (map[string]map[string]string, error) {
+func (r *SQLiteRepository) GetSpecificationsBatch(ctx context.Context, models []string, productType string) (map[string]map[string]string, error) {
 	if len(models) == 0 {
 		return map[string]map[string]string{}, nil
 	}
-	specsTable, err := r.specsTableForType(productType)
+	specsTable, err := r.specsTableForType(ctx, productType)
 	if err != nil {
 		return nil, err
 	}
@@ -260,8 +227,8 @@ func (r *SQLiteRepository) GetSpecificationsBatch(models []string, productType s
 		args[i] = modelName
 	}
 	// SELECT * — colunas descobertas dinamicamente via rows.Columns(), sem hardcode
-	query := fmt.Sprintf("SELECT * FROM %s WHERE %s IN (%s)", specsTable, specsModelColumn, join(placeholders, ","))
-	rows, err := r.db.Query(query, args...)
+	query := fmt.Sprintf("SELECT * FROM %s WHERE %s IN (%s)", specsTable, specsModelColumn, strings.Join(placeholders, ","))
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -298,8 +265,8 @@ func (r *SQLiteRepository) GetSpecificationsBatch(models []string, productType s
 	return result, nil
 }
 
-func (r *SQLiteRepository) specsTableForType(productType string) (string, error) {
-	row := r.db.QueryRow("SELECT specs_table FROM product_type_specs WHERE product_type = ?", productType)
+func (r *SQLiteRepository) specsTableForType(ctx context.Context, productType string) (string, error) {
+	row := r.db.QueryRowContext(ctx, "SELECT specs_table FROM product_type_specs WHERE product_type = ?", productType)
 	var specsTable string
 	if err := row.Scan(&specsTable); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

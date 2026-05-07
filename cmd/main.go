@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -60,6 +61,7 @@ func openInMemoryDatabase() (*sql.DB, error) {
 		return nil, fmt.Errorf("open sqlite in memory: %w", err)
 	}
 
+	// Uma única conexão evita inconsistências entre múltiplas conexões para o banco em memória.
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 
@@ -81,27 +83,20 @@ func initializeDatabase(db *sql.DB) error {
 		return fmt.Errorf("exec schema: %w", err)
 	}
 
-	if err := seedDatabase(db); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func seedDatabase(db *sql.DB) error {
 	products, err := readSeedProducts("data/products.json")
 	if err != nil {
 		return err
 	}
 
-	if err := repository.SeedSQLite(db, products); err != nil {
-		return fmt.Errorf("seed sqlite: %w", err)
+	if err := repository.SeedSQLite(context.Background(), db, products); err != nil {
+		return err
 	}
 
 	return nil
 }
 
 func readSeedProducts(filePath string) ([]model.Product, error) {
+	// O seed continua externo ao código para manter a persistência simulada simples de revisar e trocar.
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", filePath, err)
