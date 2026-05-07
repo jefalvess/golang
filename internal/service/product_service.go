@@ -5,10 +5,12 @@ import (
 	"comparify/pkg/logger"
 	"comparify/pkg/utils"
 	"errors"
+	"fmt"
 	"sort"
-	"sync"
 	"time"
 )
+
+var ErrInvalidFieldSelection = errors.New("invalid field selection")
 
 type ProductService struct {
 	Repo repository.Repository
@@ -32,14 +34,18 @@ func (s *ProductService) GetItem(id string, fieldsRaw string) (map[string]any, [
 		)
 		return nil, nil, err
 	}
-	specs, err := s.Repo.GetSpecificationsByType(product.ID, product.SpecsTable)
+	specs, err := s.Repo.GetSpecificationsByModel(product.Model, product.Type)
 	if err != nil {
 		logger.Logger.Warnw("GetItem: failed to fetch specifications",
 			"productID", product.ID,
-			"specsTable", product.SpecsTable,
+			"model", product.Model,
+			"productType", product.Type,
 			"error", err,
 		)
 	} else {
+		if _, exists := specs["modelVersion"]; !exists && product.Model != "" {
+			specs["modelVersion"] = product.Model
+		}
 		product.Specifications = specs
 	}
 	fields, err := parseFields(fieldsRaw, product.FieldMap())
@@ -47,7 +53,7 @@ func (s *ProductService) GetItem(id string, fieldsRaw string) (map[string]any, [
 		logger.Logger.Warnw("GetItem parseFields error",
 			"error", err,
 		)
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("%w: %v", ErrInvalidFieldSelection, err)
 	}
 	elapsed := time.Since(start)
 	logger.Logger.Infow("GetItem success",
@@ -83,54 +89,45 @@ func (s *ProductService) Compare(filters map[string]string, fieldsRaw string) ([
 		logger.Logger.Warnw("Compare parseFields error",
 			"error", err,
 		)
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("%w: %v", ErrInvalidFieldSelection, err)
 	}
 	items := make([]map[string]any, 0, len(products))
 
-	// Agrupa IDs por tipo para buscar specs em batch (evita N+1)
-	productIDsByType := make(map[string][]string)
+	// Agrupa modelos por tabela de specs para reutilizar a mesma linha entre produtos iguais.
+	modelsByType := make(map[string][]string)
+	seenModelsByType := make(map[string]map[string]struct{})
 	for _, product := range products {
-		productIDsByType[product.SpecsTable] = append(productIDsByType[product.SpecsTable], product.ID)
+		if _, ok := seenModelsByType[product.Type]; !ok {
+			seenModelsByType[product.Type] = make(map[string]struct{})
+		}
+		if _, exists := seenModelsByType[product.Type][product.Model]; exists {
+			continue
+		}
+		seenModelsByType[product.Type][product.Model] = struct{}{}
+		modelsByType[product.Type] = append(modelsByType[product.Type], product.Model)
 	}
 
-	// Busca specs de cada tipo em paralelo via goroutines + channel
-	type specsResult struct {
-		specs       map[string]map[string]string
-		productType string
-		err         error
-	}
-	ch := make(chan specsResult, len(productIDsByType))
-	var wg sync.WaitGroup
-	for productType, productIDs := range productIDsByType {
-		wg.Add(1)
-		go func(pt string, ids []string) {
-			defer wg.Done()
-			specsBatch, err := s.Repo.GetSpecificationsBatch(ids, pt)
-			ch <- specsResult{specs: specsBatch, productType: pt, err: err}
-		}(productType, productIDs)
-	}
-	go func() {
-		wg.Wait()
-		close(ch)
-	}()
-
-	specsByProductID := make(map[string]map[string]string)
-	for res := range ch {
-		if res.err != nil {
+	specsByModelAndType := make(map[string]map[string]string)
+	for productType, models := range modelsByType {
+		specsBatch, batchErr := s.Repo.GetSpecificationsBatch(models, productType)
+		if batchErr != nil {
 			logger.Logger.Warnw("Compare: failed to fetch specs batch",
-				"productType", res.productType,
-				"error", res.err,
+				"productType", productType,
+				"error", batchErr,
 			)
 			continue
 		}
-		for fetchedProductID, fetchedSpecs := range res.specs {
-			specsByProductID[fetchedProductID] = fetchedSpecs
+		for modelName, fetchedSpecs := range specsBatch {
+			if _, exists := fetchedSpecs["modelVersion"]; !exists && modelName != "" {
+				fetchedSpecs["modelVersion"] = modelName
+			}
+			specsByModelAndType[productType+"\x00"+modelName] = fetchedSpecs
 		}
 	}
 
 	for _, product := range products {
 		productMap := product.FieldMap()
-		productMap["specifications"] = specsByProductID[product.ID]
+		productMap["specifications"] = specsByModelAndType[product.Type+"\x00"+product.Model]
 		items = append(items, selectFields(productMap, fields))
 	}
 	elapsed := time.Since(start)
@@ -143,7 +140,6 @@ func (s *ProductService) Compare(filters map[string]string, fieldsRaw string) ([
 	return items, fields, nil
 }
 
-// parseFields e selectFields são helpers copiados do handler
 func parseFields(raw string, allowed map[string]any) ([]string, error) {
 	if len(allowed) == 0 {
 		return nil, errors.New("no allowed fields")
@@ -156,7 +152,7 @@ func parseFields(raw string, allowed map[string]any) ([]string, error) {
 		sort.Strings(fields)
 		return fields, nil
 	}
-	parts := splitAndTrim(raw, ",")
+	parts := utils.SplitAndTrim(raw, ",")
 	fields := make([]string, 0, len(parts))
 	seen := make(map[string]struct{}, len(parts))
 	for _, field := range parts {
@@ -172,6 +168,7 @@ func parseFields(raw string, allowed map[string]any) ([]string, error) {
 	if len(fields) == 0 {
 		return nil, errors.New("fields query parameter must include at least one valid field")
 	}
+
 	return fields, nil
 }
 
@@ -181,8 +178,4 @@ func selectFields(product map[string]any, fields []string) map[string]any {
 		selected[field] = product[field]
 	}
 	return selected
-}
-
-func splitAndTrim(s, sep string) []string {
-	return utils.SplitAndTrim(s, sep)
 }

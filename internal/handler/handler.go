@@ -2,9 +2,12 @@ package handler
 
 import (
 	"comparify/internal/service"
-	"encoding/json"
+	"errors"
 	"net/http"
-	"strings"
+
+	"comparify/internal/repository"
+
+	"github.com/labstack/echo/v4"
 )
 
 type Handler struct {
@@ -15,69 +18,63 @@ func NewHandler(svc *service.ProductService) *Handler {
 	return &Handler{Service: svc}
 }
 
-func (h *Handler) Health(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+func (h *Handler) Health(c echo.Context) error {
+	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (h *Handler) GetItem(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
+func (h *Handler) GetItem(c echo.Context) error {
+	itemID := c.Param("id")
+	if itemID == "" {
+		return writeError(c, http.StatusNotFound, "item not found")
 	}
-	id := strings.TrimPrefix(r.URL.Path, "/items/")
-	if id == "" || strings.Contains(id, "/") {
-		writeError(w, http.StatusNotFound, "item not found")
-		return
-	}
-	item, fields, err := h.Service.GetItem(id, r.URL.Query().Get("fields"))
+
+	item, fields, err := h.Service.GetItem(itemID, c.QueryParam("fields"))
 	if err != nil {
-		// Aqui assume-se que o service retorna erro de not found já tratado
-		writeError(w, http.StatusNotFound, "item not found")
-		return
+		switch {
+		case errors.Is(err, repository.ErrProductNotFound):
+			return writeError(c, http.StatusNotFound, "item not found")
+		case errors.Is(err, service.ErrInvalidFieldSelection):
+			return writeError(c, http.StatusBadRequest, err.Error())
+		default:
+			return writeError(c, http.StatusInternalServerError, "failed to load item")
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+
+	return c.JSON(http.StatusOK, map[string]any{
 		"item":            item,
 		"requestedFields": fields,
 	})
 }
 
-func (h *Handler) Compare(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	query := r.URL.Query()
+func (h *Handler) Compare(c echo.Context) error {
 	filters := make(map[string]string)
 	for _, key := range []string{"brand", "color"} {
-		if v := query.Get(key); v != "" {
+		if v := c.QueryParam(key); v != "" {
 			filters[key] = v
 		}
 	}
-	items, fields, err := h.Service.Compare(filters, query.Get("fields"))
+
+	items, fields, err := h.Service.Compare(filters, c.QueryParam("fields"))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load items")
-		return
+		if errors.Is(err, service.ErrInvalidFieldSelection) {
+			return writeError(c, http.StatusBadRequest, err.Error())
+		}
+
+		return writeError(c, http.StatusInternalServerError, "failed to load items")
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+
+	return c.JSON(http.StatusOK, map[string]any{
 		"items":           items,
 		"requestedFields": fields,
 		"count":           len(items),
 	})
 }
 
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]any{
+func writeError(c echo.Context, status int, message string) error {
+	return c.JSON(status, map[string]any{
 		"error": map[string]any{
 			"message": message,
 			"status":  status,
 		},
 	})
-}
-
-func writeJSON(w http.ResponseWriter, status int, data any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(data); err != nil {
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-	}
 }

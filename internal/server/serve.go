@@ -2,21 +2,42 @@ package server
 
 import (
 	"comparify/internal/handler"
-	"net/http"
+
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 )
 
+const apiVersionPrefix = "/v1"
+
 type Server struct {
-	Handler *handler.Handler
+	echo    *echo.Echo
+	handler *handler.Handler
 }
 
-func NewServer(h *handler.Handler) *Server {
-	return &Server{Handler: h}
+func NewServer(productHandler *handler.Handler) *Server {
+	application := echo.New()
+	application.HideBanner = true
+	application.Use(middleware.Recover())
+	application.Use(middleware.RequestID())
+
+	server := &Server{
+		echo:    application,
+		handler: productHandler,
+	}
+	server.registerRoutes()
+
+	return server
 }
 
-func (s *Server) Routes() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", s.Handler.Health)
-	mux.HandleFunc("/items/", s.Handler.GetItem)
-	mux.HandleFunc("/items/compare", s.Handler.Compare)
-	return mux
+func (s *Server) Start(address string) error {
+	return s.echo.Start(address)
+}
+
+func (s *Server) registerRoutes() {
+	v1Group := s.echo.Group(apiVersionPrefix)
+	itemsGroup := v1Group.Group("/items")
+
+	v1Group.GET("/health", s.handler.Health)
+	itemsGroup.GET("/:id", s.handler.GetItem)
+	itemsGroup.GET("/compare", s.handler.Compare)
 }

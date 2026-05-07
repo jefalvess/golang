@@ -88,12 +88,13 @@ Campos essenciais (tabela `products`):
 | `weight` | TEXT | Peso |
 | `color` | TEXT | Cor |
 | `type` | TEXT | Tipo (celular, geladeira, etc.) |
+| `model` | TEXT | Modelo comercial do produto |
 
 ---
 
 ## Estrutura do Banco de Dados
 
-O banco SQLite em memória é composto por uma tabela principal e quatro tabelas de especificações especializadas, relacionadas por `product_id`.
+O banco SQLite em memória é composto por uma tabela principal e quatro tabelas de especificações especializadas, relacionadas por `product_id`. O campo `model` fica na tabela `products`, evitando duplicar esse dado nas tabelas de especificações.
 
 ### `smartphone_specs`
 
@@ -105,7 +106,6 @@ O banco SQLite em memória é composto por uma tabela principal e quatro tabelas
 | `memory` | TEXT | Memória RAM |
 | `storage_capacity` | TEXT | Armazenamento |
 | `brand` | TEXT | Marca |
-| `model_version` | TEXT | Versão do modelo |
 | `operating_system` | TEXT | Sistema operacional |
 
 ### `fridge_specs`
@@ -116,7 +116,6 @@ O banco SQLite em memória é composto por uma tabela principal e quatro tabelas
 | `capacity` | TEXT | Capacidade em litros |
 | `energy_class` | TEXT | Classificação energética |
 | `brand` | TEXT | Marca |
-| `model_version` | TEXT | Versão do modelo |
 
 ### `microwave_specs`
 
@@ -126,7 +125,6 @@ O banco SQLite em memória é composto por uma tabela principal e quatro tabelas
 | `capacity` | TEXT | Capacidade em litros |
 | `power` | TEXT | Potência em Watts |
 | `brand` | TEXT | Marca |
-| `model_version` | TEXT | Versão do modelo |
 
 ### `speaker_specs`
 
