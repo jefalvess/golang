@@ -35,7 +35,7 @@ func TestGetItem_Success(t *testing.T) {
 		},
 	}
 	h := NewHandler(svc)
-	req := httptest.NewRequest(http.MethodGet, "/v1/items/p1?fields=id,name", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/products/p1?fields=id,name", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 	c.SetParamNames("id")
@@ -58,7 +58,7 @@ func TestGetItem_NotFound(t *testing.T) {
 		},
 	}
 	h := NewHandler(svc)
-	req := httptest.NewRequest(http.MethodGet, "/v1/items/naoexiste", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/products/naoexiste", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 	c.SetParamNames("id")
@@ -84,7 +84,7 @@ func TestCompare_Success(t *testing.T) {
 		},
 	}
 	h := NewHandler(svc)
-	req := httptest.NewRequest(http.MethodGet, "/v1/items/compare?ids=p1,p2&fields=id", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/products/compare?ids=p1,p2&fields=id", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -105,7 +105,7 @@ func TestCompare_InvalidParam(t *testing.T) {
 		},
 	}
 	h := NewHandler(svc)
-	req := httptest.NewRequest(http.MethodGet, "/v1/items/compare?foo=bar", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/products/compare?foo=bar", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -125,7 +125,7 @@ func TestGetItem_EmptyID(t *testing.T) {
 	e := echo.New()
 	svc := &mockService{}
 	h := NewHandler(svc)
-	req := httptest.NewRequest(http.MethodGet, "/v1/items/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/products/", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 	c.SetParamNames("id")
@@ -148,7 +148,7 @@ func TestGetItem_InvalidField(t *testing.T) {
 		},
 	}
 	h := NewHandler(svc)
-	req := httptest.NewRequest(http.MethodGet, "/v1/items/p1?fields=invalido", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/products/p1?fields=invalido", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 	c.SetParamNames("id")
@@ -171,7 +171,7 @@ func TestGetItem_InternalError(t *testing.T) {
 		},
 	}
 	h := NewHandler(svc)
-	req := httptest.NewRequest(http.MethodGet, "/v1/items/p1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/products/p1", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 	c.SetParamNames("id")
@@ -190,7 +190,7 @@ func TestCompare_MissingIds(t *testing.T) {
 	e := echo.New()
 	svc := &mockService{}
 	h := NewHandler(svc)
-	req := httptest.NewRequest(http.MethodGet, "/v1/items/compare", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/products/compare", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -210,7 +210,7 @@ func TestCompare_EmptyIdsAfterTrim(t *testing.T) {
 	e := echo.New()
 	svc := &mockService{}
 	h := NewHandler(svc)
-	req := httptest.NewRequest(http.MethodGet, "/v1/items/compare?ids=,", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/products/compare?ids=,", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -234,7 +234,7 @@ func TestCompare_ServiceNotFound(t *testing.T) {
 		},
 	}
 	h := NewHandler(svc)
-	req := httptest.NewRequest(http.MethodGet, "/v1/items/compare?ids=p1,p2", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/products/compare?ids=p1,p2", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -255,7 +255,7 @@ func TestCompare_InternalError(t *testing.T) {
 		},
 	}
 	h := NewHandler(svc)
-	req := httptest.NewRequest(http.MethodGet, "/v1/items/compare?ids=p1,p2", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/products/compare?ids=p1,p2", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 

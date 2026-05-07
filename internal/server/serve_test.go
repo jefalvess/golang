@@ -41,12 +41,12 @@ func TestRegisterRoutes_GetItem(t *testing.T) {
 	h := handler.NewHandler(&stubService{})
 	srv := NewServer(h)
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/items/p1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/products/p1", nil)
 	rec := httptest.NewRecorder()
 	srv.echo.ServeHTTP(rec, req)
 
 	if rec.Code == http.StatusNotFound {
-		t.Errorf("rota GET /v1/items/:id não registrada, obteve 404")
+		t.Errorf("rota GET /v1/products/:id não registrada, obteve 404")
 	}
 }
 
@@ -54,11 +54,11 @@ func TestRegisterRoutes_Compare(t *testing.T) {
 	h := handler.NewHandler(&stubService{})
 	srv := NewServer(h)
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/items/compare?ids=p1,p2", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/products/compare?ids=p1,p2", nil)
 	rec := httptest.NewRecorder()
 	srv.echo.ServeHTTP(rec, req)
 
 	if rec.Code == http.StatusNotFound {
-		t.Errorf("rota GET /v1/items/compare não registrada, obteve 404")
+		t.Errorf("rota GET /v1/products/compare não registrada, obteve 404")
 	}
 }

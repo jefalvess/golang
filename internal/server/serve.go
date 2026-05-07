@@ -35,10 +35,10 @@ func (s *Server) Start(address string) error {
 
 func (s *Server) registerRoutes() {
 	v1Group := s.echo.Group(apiVersionPrefix)
-	itemsGroup := v1Group.Group("/items")
+	productsGroup := v1Group.Group("/products")
 
-	itemsGroup.GET("/:id", s.handler.GetItem)
-	itemsGroup.GET("/compare", s.handler.Compare)
+	productsGroup.GET("/:id", s.handler.GetItem)
+	productsGroup.GET("/compare", s.handler.Compare)
 }
 
 // newEchoApplication centraliza middleware comum para manter a criação do servidor previsível.

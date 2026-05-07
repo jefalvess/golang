@@ -58,7 +58,7 @@ Regras de uso:
 - Qualquer outro parâmetro de query no endpoint de compare retorna erro `400`.
 
 ```bash
-curl "http://localhost:8080/v1/items/compare?ids=phone-1,phone-2&fields=id,name,price,specifications"
+curl "http://localhost:8080/v1/products/compare?ids=phone-1,phone-2&fields=id,name,price,specifications"
 ```
 
 Esse exemplo retorna exatamente os itens informados em `ids`, com apenas os campos pedidos em `fields`.
@@ -67,8 +67,8 @@ Esse exemplo retorna exatamente os itens informados em `ids`, com apenas os camp
 
 ## Endpoints
 
-- `GET /v1/items/{id}`: retorna um item por ID. Use `fields=...` para limitar os campos retornados.
-- `GET /v1/items/compare?ids=...&fields=...`: retorna itens específicos para comparação.
+- `GET /v1/products/{id}`: retorna um produto por ID. Use `fields=...` para limitar os campos retornados.
+- `GET /v1/products/compare?ids=...&fields=...`: retorna produtos específicos para comparação.
 
 **Exemplo de erro:**
 
@@ -198,20 +198,24 @@ CGO_ENABLED=1 PORT=8080 go run ./cmd
 ## Exemplos de Requisições
 
 ```bash
-# Buscar um item específico
-curl "http://localhost:8080/v1/items/phone-1"
 
-# Comparar itens específicos por ids
-curl "http://localhost:8080/v1/items/compare?ids=phone-1,phone-2&fields=id,name,price,specifications"
+# Buscar um produto específico
+curl "http://localhost:8080/v1/products/phone-1"
+
+
+# Comparar produtos específicos por ids
+curl "http://localhost:8080/v1/products/compare?ids=phone-1,phone-2&fields=id,name,price,specifications"
+
 
 # Exemplo com projeção mínima de campos
-curl "http://localhost:8080/v1/items/compare?ids=phone-1,phone-2&fields=name,price"
+curl "http://localhost:8080/v1/products/compare?ids=phone-1,phone-2&fields=name,price"
+
 
 # Exemplo inválido: ids é obrigatório no compare
-curl "http://localhost:8080/v1/items/compare?fields=name,price"
+curl "http://localhost:8080/v1/products/compare?fields=name,price"
 
-# Exemplo inválido: parâmetro não suportado
-curl "http://localhost:8080/v1/items/compare?type=celular&fields=name,price"
+# Exemplo inválido: parâmetro não suportado (apenas 'ids' e 'fields' são aceitos)
+curl "http://localhost:8080/v1/products/compare?type=celular&fields=name,price" # retorna erro 400
 ```
 
 ---
