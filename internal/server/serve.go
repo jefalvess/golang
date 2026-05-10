@@ -5,6 +5,8 @@ import (
 	"context"
 	"time"
 
+	"comparify/pkg/logger"
+
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 )
@@ -37,7 +39,7 @@ func (s *Server) registerRoutes() {
 	v1Group := s.echo.Group(apiVersionPrefix)
 	productsGroup := v1Group.Group("/products")
 
-	productsGroup.GET("/:id", s.handler.GetItem)
+	productsGroup.GET("", s.handler.ListItems)
 	productsGroup.GET("/compare", s.handler.Compare)
 }
 
@@ -49,9 +51,30 @@ func newEchoApplication() *echo.Echo {
 	application.Server.WriteTimeout = requestTimeout
 	application.Use(middleware.Recover())
 	application.Use(middleware.RequestID())
+	application.Use(requestLogMiddleware())
 	application.Use(requestTimeoutMiddleware(requestTimeout))
 
 	return application
+}
+
+func requestLogMiddleware() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			path := c.Path()
+			if path == "" {
+				path = c.Request().URL.Path
+			}
+
+			logger.Logger.Infow("route called",
+				"component", "Server.requestLogMiddleware",
+				"method", c.Request().Method,
+				"path", path,
+				"request_id", c.Response().Header().Get(echo.HeaderXRequestID),
+			)
+
+			return next(c)
+		}
+	}
 }
 
 // requestTimeoutMiddleware adiciona um deadline de timeout ao contexto de cada request.

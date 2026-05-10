@@ -112,27 +112,48 @@ func TestSQLiteRepository_ListByIDs(t *testing.T) {
 	}
 }
 
-func TestSQLiteRepository_GetByID(t *testing.T) {
+func TestSQLiteRepository_ListAll(t *testing.T) {
 	db := setupTestDB(t)
 	repo := NewSQLiteRepository(db)
-	seedTestProduct(t, db, model.Product{ID: "p1", Name: "Produto Teste", Price: 999.90, Type: "celular", Model: "m1"})
+
 	tests := []struct {
 		name    string
-		id      string
-		wantID  string
-		wantErr error
+		seed    []model.Product
+		wantLen int
+		wantIDs []string
 	}{
-		{"produto existe", "p1", "p1", nil},
-		{"produto não existe", "naoexiste", "", ErrProductNotFound},
+		{
+			name:    "retorna vazio quando banco está vazio",
+			seed:    nil,
+			wantLen: 0,
+		},
+		{
+			name: "retorna todos os produtos",
+			seed: []model.Product{
+				{ID: "p1", Name: "Produto 1", Price: 100, Type: "celular", Model: "m1"},
+				{ID: "p2", Name: "Produto 2", Price: 200, Type: "celular", Model: "m2"},
+			},
+			wantLen: 2,
+			wantIDs: []string{"p1", "p2"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			product, err := repo.GetByID(context.Background(), tt.id)
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-			} else {
-				require.NoError(t, err)
-				assert.Equal(t, tt.wantID, product.ID)
+			for _, p := range tt.seed {
+				seedTestProduct(t, db, p)
+			}
+			products, err := repo.ListAll(context.Background())
+			require.NoError(t, err)
+			assert.Len(t, products, tt.wantLen)
+			for _, wantID := range tt.wantIDs {
+				found := false
+				for _, p := range products {
+					if p.ID == wantID {
+						found = true
+						break
+					}
+				}
+				assert.True(t, found, "produto %s não encontrado nos resultados", wantID)
 			}
 		})
 	}
@@ -144,37 +165,10 @@ func TestSQLiteRepository_SeedSQLite(t *testing.T) {
 	err := SeedSQLite(context.Background(), db, products)
 	require.NoError(t, err)
 	repo := NewSQLiteRepository(db)
-	product, err := repo.GetByID(context.Background(), "s1")
+	seeded, err := repo.ListByIDs(context.Background(), []string{"s1"})
 	require.NoError(t, err)
-	assert.Equal(t, "Smartphone Seed", product.Name)
-}
-
-func TestSQLiteRepository_GetSpecificationsByModel(t *testing.T) {
-	db := setupTestDB(t)
-	repo := NewSQLiteRepository(db)
-	seedTestSmartphoneSpecs(t, db, "modelX", "5000mAh", "BrandX")
-	tests := []struct {
-		name      string
-		model     string
-		typeProd  string
-		wantKey   string
-		wantValue string
-		wantEmpty bool
-	}{
-		{"modelo existente", "modelX", "celular", "battery_capacity", "5000mAh", false},
-		{"modelo inexistente", "naoexiste", "celular", "", "", true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			specs, err := repo.GetSpecificationsByModel(context.Background(), tt.model, tt.typeProd)
-			require.NoError(t, err)
-			if tt.wantEmpty {
-				assert.Empty(t, specs)
-			} else {
-				assert.Equal(t, tt.wantValue, specs[tt.wantKey])
-			}
-		})
-	}
+	require.Len(t, seeded, 1)
+	assert.Equal(t, "Smartphone Seed", seeded[0].Name)
 }
 
 func TestSQLiteRepository_GetSpecificationsBatch(t *testing.T) {
@@ -211,7 +205,7 @@ func TestSQLiteRepository_GetSpecificationsBatch(t *testing.T) {
 	}
 }
 
-func TestSQLiteRepository_ResolveProductModel(t *testing.T) {
+func TestSQLiteRepository_ResolveModelKey(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    model.Product
@@ -223,7 +217,7 @@ func TestSQLiteRepository_ResolveProductModel(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := resolveProductModel(tt.input)
+			result := resolveModelKey(tt.input)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

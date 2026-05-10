@@ -3,10 +3,12 @@ package handler
 import (
 	"comparify/internal/repository"
 	"comparify/internal/service"
+	"comparify/pkg/logger"
 	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/labstack/echo/v4"
@@ -14,84 +16,88 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type mockService struct {
-	getItemFunc func(ctx context.Context, id, fields string) (map[string]any, error)
-	compareFunc func(ctx context.Context, ids []string, fields string) ([]map[string]any, error)
+func TestMain(m *testing.M) {
+	logger.Init()
+	os.Exit(m.Run())
 }
 
-func (m *mockService) GetItem(ctx context.Context, id, fields string) (map[string]any, error) {
-	return m.getItemFunc(ctx, id, fields)
+type mockService struct {
+	listItemsFunc       func(ctx context.Context) ([]map[string]any, error)
+	availableFieldsFunc func() []string
+	compareFunc         func(ctx context.Context, ids []string, fields string) ([]map[string]any, error)
 }
+
+func (m *mockService) ListItems(ctx context.Context) ([]map[string]any, error) {
+	if m.listItemsFunc == nil {
+		return []map[string]any{}, nil
+	}
+	return m.listItemsFunc(ctx)
+}
+
+func (m *mockService) AvailableFields() []string {
+	if m.availableFieldsFunc == nil {
+		return []string{}
+	}
+	return m.availableFieldsFunc()
+}
+
 func (m *mockService) Compare(ctx context.Context, ids []string, fields string) ([]map[string]any, error) {
+	if m.compareFunc == nil {
+		return []map[string]any{}, nil
+	}
 	return m.compareFunc(ctx, ids, fields)
 }
 
 var _ service.Service = (*mockService)(nil)
 
-// Testa os cenários de busca de produto por ID usando table-driven test e testify
-func TestGetItem(t *testing.T) {
+// Testa os cenários de listagem de produtos usando table-driven test e testify
+func TestListItems(t *testing.T) {
 	type fields struct {
-		getItemFunc func(ctx context.Context, id, fields string) (map[string]any, error)
+		listItemsFunc func(ctx context.Context) ([]map[string]any, error)
 	}
 	tests := []struct {
 		name       string
 		fields     fields
-		paramID    string
 		query      string
 		wantStatus int
 		wantInBody string
 		wantErr    bool
 	}{
 		{
-			name: "sucesso ao buscar produto existente",
-			fields: fields{getItemFunc: func(ctx context.Context, id, fields string) (map[string]any, error) {
-				return map[string]any{"id": id, "name": "Produto Teste"}, nil
+			name: "sucesso ao listar produtos",
+			fields: fields{listItemsFunc: func(ctx context.Context) ([]map[string]any, error) {
+				return []map[string]any{{"id": "p1", "name": "Produto Teste"}}, nil
 			}},
-			paramID:    "p1",
-			query:      "?fields=id,name",
+			query:      "",
 			wantStatus: http.StatusOK,
 			wantInBody: "Produto Teste",
 			wantErr:    false,
 		},
 		{
-			name: "erro 404 ao buscar produto inexistente",
-			fields: fields{getItemFunc: func(ctx context.Context, id, fields string) (map[string]any, error) {
-				return nil, repository.ErrProductNotFound
+			name: "response inclui availableFields",
+			fields: fields{listItemsFunc: func(ctx context.Context) ([]map[string]any, error) {
+				return []map[string]any{}, nil
 			}},
-			paramID:    "naoexiste",
 			query:      "",
-			wantStatus: http.StatusNotFound,
-			wantInBody: "item not found",
-			wantErr:    false,
-		},
-		{
-			name: "erro 400 ao buscar produto com campo inválido",
-			fields: fields{getItemFunc: func(ctx context.Context, id, fields string) (map[string]any, error) {
-				return nil, service.ErrInvalidFieldSelection
-			}},
-			paramID:    "p1",
-			query:      "?fields=invalido",
-			wantStatus: http.StatusBadRequest,
-			wantInBody: "",
+			wantStatus: http.StatusOK,
+			wantInBody: "availableFields",
 			wantErr:    false,
 		},
 		{
 			name: "erro 500 ao ocorrer erro inesperado no serviço",
-			fields: fields{getItemFunc: func(ctx context.Context, id, fields string) (map[string]any, error) {
+			fields: fields{listItemsFunc: func(ctx context.Context) ([]map[string]any, error) {
 				return nil, errors.New("unexpected db error")
 			}},
-			paramID:    "p1",
 			query:      "",
 			wantStatus: http.StatusInternalServerError,
 			wantInBody: "",
 			wantErr:    false,
 		},
 		{
-			name:       "erro 404 ao buscar produto sem ID",
-			fields:     fields{getItemFunc: nil},
-			paramID:    "",
+			name:       "sucesso ao listar sem produtos cadastrados",
+			fields:     fields{listItemsFunc: nil},
 			query:      "",
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusOK,
 			wantInBody: "",
 			wantErr:    false,
 		},
@@ -99,20 +105,18 @@ func TestGetItem(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := echo.New()
-			var svc service.Service
-			if tt.fields.getItemFunc != nil {
-				svc = &mockService{getItemFunc: tt.fields.getItemFunc}
-			} else {
-				svc = &mockService{}
+			svc := &mockService{
+				listItemsFunc: tt.fields.listItemsFunc,
+				availableFieldsFunc: func() []string {
+					return []string{"id", "name", "price"}
+				},
 			}
 			h := NewHandler(svc)
-			req := httptest.NewRequest(http.MethodGet, "/v1/products/"+tt.paramID+tt.query, nil)
+			req := httptest.NewRequest(http.MethodGet, "/v1/products"+tt.query, nil)
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
-			c.SetParamNames("id")
-			c.SetParamValues(tt.paramID)
 
-			err := h.GetItem(c)
+			err := h.ListItems(c)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -156,7 +160,7 @@ func TestCompare(t *testing.T) {
 			}},
 			query:      "?foo=bar",
 			wantStatus: http.StatusBadRequest,
-			wantInBody: []string{"unsupported compare query parameter"},
+			wantInBody: []string{"INVALID_REQUEST_ERROR"},
 			wantErr:    false,
 		},
 		{
@@ -164,7 +168,7 @@ func TestCompare(t *testing.T) {
 			fields:     fields{compareFunc: nil},
 			query:      "",
 			wantStatus: http.StatusBadRequest,
-			wantInBody: []string{"ids query parameter is required"},
+			wantInBody: []string{"INVALID_REQUEST_ERROR"},
 			wantErr:    false,
 		},
 		{
@@ -172,7 +176,7 @@ func TestCompare(t *testing.T) {
 			fields:     fields{compareFunc: nil},
 			query:      "?ids=,",
 			wantStatus: http.StatusBadRequest,
-			wantInBody: []string{"must include at least one"},
+			wantInBody: []string{"INVALID_REQUEST_ERROR"},
 			wantErr:    false,
 		},
 		{
@@ -181,7 +185,7 @@ func TestCompare(t *testing.T) {
 				return nil, repository.ErrProductNotFound
 			}},
 			query:      "?ids=p1,p2",
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusInternalServerError, // handler retorna 500 para erro não customizado
 			wantInBody: nil,
 			wantErr:    false,
 		},

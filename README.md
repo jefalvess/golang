@@ -21,7 +21,7 @@ graph TD
 
 # Item Comparison API
 
-API backend em Go para comparação de produtos, seguindo boas práticas de arquitetura, logging estruturado, documentação e testes. Atende requisitos de entrevista técnica e simula persistência com SQLite em memória e seed JSON.
+API backend em Go para comparação de produtos, seguindo boas práticas de arquitetura, logging estruturado, documentação e testes. Persiste em SQLite in-memory e carrega seed de produtos reais para testes locais.
 
 ---
 
@@ -43,22 +43,21 @@ Esta API permite consultar detalhes de produtos e realizar comparações flexív
 
 ## Comparação de Itens
 
-Com base no enunciado, a comparação é feita entre itens específicos. O endpoint de comparação aceita somente estes parâmetros:
+O serviço expõe dois endpoints principais para recuperação e comparação de produtos. As regras atuais do comportamento foram definidas para eficiência e clareza:
 
-| Parâmetro | Tipo | Exemplo | Observação |
-|---|---|---|---|
-| `ids` | seleção explícita | `ids=phone-1,phone-2` | obrigatório para o endpoint de comparação |
-| `fields` | projeção | `fields=id,name,price` | não filtra; apenas limita os campos retornados |
+- `GET /v1/products` — retorna todos os produtos cadastrados. Resposta inclui: `items` (lista de produtos), `count` e `availableFields` (lista dos campos projetáveis pela API). Este endpoint NÃO aceita o parâmetro `fields` — ele sempre retorna os produtos completos conforme o contrato do projeto.
+- `GET /v1/products/compare?ids=...&fields=...` — retorna somente os produtos selecionados por `ids` (obrigatório) na mesma ordem dos ids informados. O parâmetro `fields` é opcional e limita os campos retornados por produto.
 
 Regras de uso:
 
-- `ids` é obrigatório no endpoint de comparação.
-- os ids devem ser enviados separados por vírgula.
-- `fields` é opcional.
-- Qualquer outro parâmetro de query no endpoint de compare retorna erro `400`.
+- `ids` é obrigatório no endpoint de comparação e deve ser uma lista separada por vírgula.
+- `fields` é uma lista de chaves públicas; se conter campo inválido, o servidor responde `400 Bad Request`.
+- Se `fields` não incluir `specifications`, o serviço evita carregar as tabelas de specs (otimização de performance). Em `GET /v1/products` as specs são sempre incluídas no item.
+
+Exemplo:
 
 ```bash
-curl "http://localhost:8080/v1/products/compare?ids=phone-1,phone-2&fields=id,name,price,specifications"
+curl "http://localhost:8080/v1/products/compare?ids=samsung-galaxy-s25-ultra,iphone-16-pro-max&fields=id,name,price,specifications"
 ```
 
 Esse exemplo retorna exatamente os itens informados em `ids`, com apenas os campos pedidos em `fields`.
@@ -67,7 +66,7 @@ Esse exemplo retorna exatamente os itens informados em `ids`, com apenas os camp
 
 ## Endpoints
 
-- `GET /v1/products/{id}`: retorna um produto por ID. Use `fields=...` para limitar os campos retornados.
+- `GET /v1/products`: retorna todos os produtos cadastrados. Resposta inclui `items`, `count` e `availableFields`.
 - `GET /v1/products/compare?ids=...&fields=...`: retorna produtos específicos para comparação.
 
 **Exemplo de erro:**
@@ -75,8 +74,8 @@ Esse exemplo retorna exatamente os itens informados em `ids`, com apenas os camp
 ```json
 {
   "error": {
-    "message": "item not found",
-    "status": 404
+    "message": "invalid field selection: campoInexistente",
+    "status": 400
   }
 }
 ```
@@ -111,6 +110,8 @@ Campos essenciais (tabela `products`):
 | `type` | TEXT | Tipo (celular, geladeira, etc.) |
 | `model` | TEXT | Modelo comercial do produto |
 
+O campo `model` na tabela `products` é a chave lógica usada para reaproveitar linhas de especificações nas tabelas `*_specs`. A coluna `model_version` existe nas tabelas de specs (ex.: `smartphone_specs.model_version`) e contém a versão de negócio do modelo quando aplicável.
+
 ---
 
 ## Estrutura do Banco de Dados
@@ -128,7 +129,8 @@ O banco SQLite em memória é composto por uma tabela principal, uma tabela de m
 
 | Campo | Tipo | Descrição |
 |---|---|---|
-| `model` | TEXT (PK) | Modelo comercial do produto |
+| `model` | TEXT (PK) | Modelo comercial do produto (lookup) |
+| `model_version` | TEXT | Versão/denominação do modelo (dado de negócio) |
 | `battery_capacity` | TEXT | Capacidade da bateria |
 | `camera_specs` | TEXT | Especificações de câmera |
 | `memory` | TEXT | Memória RAM |
@@ -167,13 +169,15 @@ O banco SQLite em memória é composto por uma tabela principal, uma tabela de m
 
 ## Decisões Arquiteturais
 
-- Go 1.22 e Echo para roteamento HTTP
+- Go (com suporte CGO para go-sqlite3) e Echo para roteamento HTTP
 - Persistência simulada: SQLite em memória, seed via JSON
+- Persistência: SQLite in-memory. Seed carregado a partir de `data/products.json` no bootstrap do servidor. Specs são armazenadas em tabelas por tipo e reaproveitadas por `model`.
 - Logging estruturado com zap (níveis info, warn, error)
 - Repository pattern para desacoplamento
 - Service layer para lógica de negócio/testabilidade
 - Utilitários centralizados (ex: splitAndTrim)
 - Testes unitários cobrindo lógica principal
+- Testes unitários cobrindo fluxos principais; `make test` roda a suíte (os testes foram executados com sucesso após as mudanças recentes).
 - Documentação e exemplos completos
 
 
@@ -199,8 +203,12 @@ CGO_ENABLED=1 PORT=8080 go run ./cmd
 
 ```bash
 
-# Buscar um produto específico
-curl "http://localhost:8080/v1/products/phone-1"
+# Listar todos os produtos
+curl "http://localhost:8080/v1/products"
+
+
+# Listar todos os produtos com projeção de campos
+curl "http://localhost:8080/v1/products?fields=id,name,price"
 
 
 # Comparar produtos específicos por ids

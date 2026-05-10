@@ -40,6 +40,20 @@ func (m *MockService) EXPECT() *MockServiceMockRecorder {
 	return m.recorder
 }
 
+// AvailableFields mocks base method.
+func (m *MockService) AvailableFields() []string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AvailableFields")
+	ret0, _ := ret[0].([]string)
+	return ret0
+}
+
+// AvailableFields indicates an expected call of AvailableFields.
+func (mr *MockServiceMockRecorder) AvailableFields() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AvailableFields", reflect.TypeOf((*MockService)(nil).AvailableFields))
+}
+
 // Compare mocks base method.
 func (m *MockService) Compare(ctx context.Context, ids []string, fieldsRaw string) ([]map[string]any, error) {
 	m.ctrl.T.Helper()
@@ -56,16 +70,16 @@ func (mr *MockServiceMockRecorder) Compare(ctx, ids, fieldsRaw any) *gomock.Call
 }
 
 // GetItem mocks base method.
-func (m *MockService) GetItem(ctx context.Context, id, fieldsRaw string) (map[string]any, error) {
+func (m *MockService) ListItems(ctx context.Context, fieldsRaw string) ([]map[string]any, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetItem", ctx, id, fieldsRaw)
-	ret0, _ := ret[0].(map[string]any)
+	ret := m.ctrl.Call(m, "ListItems", ctx, fieldsRaw)
+	ret0, _ := ret[0].([]map[string]any)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetItem indicates an expected call of GetItem.
-func (mr *MockServiceMockRecorder) GetItem(ctx, id, fieldsRaw any) *gomock.Call {
+// ListItems indicates an expected call of ListItems.
+func (mr *MockServiceMockRecorder) ListItems(ctx, fieldsRaw any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetItem", reflect.TypeOf((*MockService)(nil).GetItem), ctx, id, fieldsRaw)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListItems", reflect.TypeOf((*MockService)(nil).ListItems), ctx, fieldsRaw)
 }

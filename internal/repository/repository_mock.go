@@ -41,19 +41,19 @@ func (m *MockRepository) EXPECT() *MockRepositoryMockRecorder {
 	return m.recorder
 }
 
-// GetByID mocks base method.
-func (m *MockRepository) GetByID(ctx context.Context, id string) (model.Product, error) {
+// ListAll mocks base method.
+func (m *MockRepository) ListAll(ctx context.Context) ([]model.Product, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetByID", ctx, id)
-	ret0, _ := ret[0].(model.Product)
+	ret := m.ctrl.Call(m, "ListAll", ctx)
+	ret0, _ := ret[0].([]model.Product)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetByID indicates an expected call of GetByID.
-func (mr *MockRepositoryMockRecorder) GetByID(ctx, id any) *gomock.Call {
+// ListAll indicates an expected call of ListAll.
+func (mr *MockRepositoryMockRecorder) ListAll(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByID", reflect.TypeOf((*MockRepository)(nil).GetByID), ctx, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAll", reflect.TypeOf((*MockRepository)(nil).ListAll), ctx)
 }
 
 // GetSpecificationsBatch mocks base method.
@@ -69,21 +69,6 @@ func (m *MockRepository) GetSpecificationsBatch(ctx context.Context, models []st
 func (mr *MockRepositoryMockRecorder) GetSpecificationsBatch(ctx, models, productType any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecificationsBatch", reflect.TypeOf((*MockRepository)(nil).GetSpecificationsBatch), ctx, models, productType)
-}
-
-// GetSpecificationsByModel mocks base method.
-func (m *MockRepository) GetSpecificationsByModel(ctx context.Context, modelName, productType string) (map[string]string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetSpecificationsByModel", ctx, modelName, productType)
-	ret0, _ := ret[0].(map[string]string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetSpecificationsByModel indicates an expected call of GetSpecificationsByModel.
-func (mr *MockRepositoryMockRecorder) GetSpecificationsByModel(ctx, modelName, productType any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecificationsByModel", reflect.TypeOf((*MockRepository)(nil).GetSpecificationsByModel), ctx, modelName, productType)
 }
 
 // ListByIDs mocks base method.

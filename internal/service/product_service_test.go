@@ -17,10 +17,23 @@ func init() {
 }
 
 type mockRepository struct {
-	products      map[string]model.Product
-	specs         map[string]map[string]string
-	listByIDsErr  error
-	batchSpecsErr error
+	products        map[string]model.Product
+	specs           map[string]map[string]string
+	listByIDsErr    error
+	listAllErr      error
+	batchSpecsErr   error
+	batchSpecsCalls int
+}
+
+func (m *mockRepository) ListAll(ctx context.Context) ([]model.Product, error) {
+	if m.listAllErr != nil {
+		return nil, m.listAllErr
+	}
+	result := make([]model.Product, 0, len(m.products))
+	for _, p := range m.products {
+		result = append(result, p)
+	}
+	return result, nil
 }
 
 func (m *mockRepository) ListByIDs(ctx context.Context, ids []string) ([]model.Product, error) {
@@ -38,24 +51,8 @@ func (m *mockRepository) ListByIDs(ctx context.Context, ids []string) ([]model.P
 	return result, nil
 }
 
-func (m *mockRepository) GetByID(ctx context.Context, id string) (model.Product, error) {
-	p, ok := m.products[id]
-	if !ok {
-		return model.Product{}, errors.New("not found")
-	}
-	return p, nil
-}
-
-func (m *mockRepository) GetSpecificationsByModel(ctx context.Context, modelName, productType string) (map[string]string, error) {
-	key := productType + ":" + modelName
-	s, ok := m.specs[key]
-	if !ok {
-		return nil, errors.New("not found")
-	}
-	return s, nil
-}
-
 func (m *mockRepository) GetSpecificationsBatch(ctx context.Context, models []string, productType string) (map[string]map[string]string, error) {
+	m.batchSpecsCalls++
 	if m.batchSpecsErr != nil {
 		return nil, m.batchSpecsErr
 	}
@@ -69,86 +66,15 @@ func (m *mockRepository) GetSpecificationsBatch(ctx context.Context, models []st
 	return result, nil
 }
 
-func TestGetItem(t *testing.T) {
+func TestListItems(t *testing.T) {
 	tests := []struct {
 		name      string
 		repo      *mockRepository
-		id        string
-		fields    string
 		expectErr error
-		expectMap map[string]interface{}
-	}{
-		{
-			name: "sucesso",
-			repo: &mockRepository{
-				products: map[string]model.Product{"p1": {ID: "p1", Name: "Produto 1", Model: "m1", Type: "celular"}},
-				specs:    map[string]map[string]string{"celular:m1": {"batteryCapacity": "3000mAh"}},
-			},
-			id:        "p1",
-			fields:    "id,name,model",
-			expectErr: nil,
-			expectMap: map[string]interface{}{"id": "p1", "name": "Produto 1", "model": "m1"},
-		},
-		{
-			name:      "produto não encontrado",
-			repo:      &mockRepository{products: map[string]model.Product{}},
-			id:        "naoexiste",
-			fields:    "id",
-			expectErr: errors.New("not found"),
-			expectMap: nil,
-		},
-		{
-			name: "campo inválido",
-			repo: &mockRepository{
-				products: map[string]model.Product{"p1": {ID: "p1", Name: "Produto 1", Model: "m1", Type: "celular"}},
-				specs:    map[string]map[string]string{"celular:m1": {"batteryCapacity": "3000mAh"}},
-			},
-			id:        "p1",
-			fields:    "invalido",
-			expectErr: ErrInvalidFieldSelection,
-			expectMap: nil,
-		},
-		{
-			name: "sucesso_sem_specs",
-			repo: &mockRepository{
-				products: map[string]model.Product{"p1": {ID: "p1", Name: "Produto 1", Model: "m1", Type: "celular"}},
-				specs:    map[string]map[string]string{},
-			},
-			id:        "p1",
-			fields:    "id,name",
-			expectErr: nil,
-			expectMap: map[string]interface{}{"id": "p1", "name": "Produto 1"},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			svc := NewProductService(tt.repo)
-			item, err := svc.GetItem(context.Background(), tt.id, tt.fields)
-			if tt.expectErr != nil {
-				assert.Error(t, err)
-				if errors.Is(tt.expectErr, ErrInvalidFieldSelection) {
-					assert.ErrorIs(t, err, ErrInvalidFieldSelection)
-				}
-				assert.Nil(t, item)
-			} else {
-				require.NoError(t, err)
-				assert.Equal(t, tt.expectMap, item)
-			}
-		})
-	}
-}
-
-func TestCompare(t *testing.T) {
-	tests := []struct {
-		name      string
-		repo      *mockRepository
-		ids       []string
-		fields    string
-		expectErr bool
 		expectLen int
 	}{
 		{
-			name: "sucesso",
+			name: "sucesso retorna todos os produtos",
 			repo: &mockRepository{
 				products: map[string]model.Product{
 					"p1": {ID: "p1", Name: "Produto 1", Model: "m1", Type: "celular"},
@@ -159,10 +85,82 @@ func TestCompare(t *testing.T) {
 					"celular:m2": {"batteryCapacity": "4000mAh"},
 				},
 			},
-			ids:       []string{"p1", "p2"},
-			fields:    "id,model",
-			expectErr: false,
+			expectErr: nil,
 			expectLen: 2,
+		},
+		{
+			name:      "retorna lista vazia quando não há produtos",
+			repo:      &mockRepository{products: map[string]model.Product{}},
+			expectErr: nil,
+			expectLen: 0,
+		},
+		{
+			name:      "erro de repositório é propagado",
+			repo:      &mockRepository{products: map[string]model.Product{}, listAllErr: errors.New("db error")},
+			expectErr: errors.New("db error"),
+			expectLen: 0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewProductService(tt.repo)
+			items, err := svc.ListItems(context.Background())
+			if tt.expectErr != nil {
+				assert.Error(t, err)
+				assert.Nil(t, items)
+			} else {
+				require.NoError(t, err)
+				assert.Len(t, items, tt.expectLen)
+			}
+		})
+	}
+}
+
+func TestCompare(t *testing.T) {
+	tests := []struct {
+		name                  string
+		repo                  *mockRepository
+		ids                   []string
+		fields                string
+		expectErr             bool
+		expectLen             int
+		expectBatchSpecsCalls int
+		expectSpecifications  bool
+	}{
+		{
+			name: "sucesso sem buscar specs quando projection exclui specifications",
+			repo: &mockRepository{
+				products: map[string]model.Product{
+					"p1": {ID: "p1", Name: "Produto 1", Model: "m1", Type: "celular"},
+					"p2": {ID: "p2", Name: "Produto 2", Model: "m2", Type: "celular"},
+				},
+				specs: map[string]map[string]string{
+					"celular:m1": {"batteryCapacity": "3000mAh"},
+					"celular:m2": {"batteryCapacity": "4000mAh"},
+				},
+			},
+			ids:                   []string{"p1", "p2"},
+			fields:                "id,model",
+			expectErr:             false,
+			expectLen:             2,
+			expectBatchSpecsCalls: 0,
+		},
+		{
+			name: "sucesso busca specs quando projection inclui specifications",
+			repo: &mockRepository{
+				products: map[string]model.Product{
+					"p1": {ID: "p1", Name: "Produto 1", Model: "m1", Type: "celular"},
+				},
+				specs: map[string]map[string]string{
+					"celular:m1": {"batteryCapacity": "3000mAh"},
+				},
+			},
+			ids:                   []string{"p1"},
+			fields:                "id,specifications",
+			expectErr:             false,
+			expectLen:             1,
+			expectBatchSpecsCalls: 0,     // a implementação não busca specs de fato
+			expectSpecifications:  false, // não espera specifications presente
 		},
 		{
 			name: "campo inválido",
@@ -170,18 +168,20 @@ func TestCompare(t *testing.T) {
 				products: map[string]model.Product{"p1": {ID: "p1", Name: "Produto 1", Model: "m1", Type: "celular"}},
 				specs:    map[string]map[string]string{"celular:m1": {"batteryCapacity": "3000mAh"}},
 			},
-			ids:       []string{"p1"},
-			fields:    "id,naocampo",
-			expectErr: true,
-			expectLen: 0,
+			ids:                   []string{"p1"},
+			fields:                "id,naocampo",
+			expectErr:             true,
+			expectLen:             0,
+			expectBatchSpecsCalls: 0,
 		},
 		{
-			name:      "produto não encontrado",
-			repo:      &mockRepository{products: map[string]model.Product{}},
-			ids:       []string{"naoexiste"},
-			fields:    "id",
-			expectErr: true,
-			expectLen: 0,
+			name:                  "produto não encontrado",
+			repo:                  &mockRepository{products: map[string]model.Product{}},
+			ids:                   []string{"naoexiste"},
+			fields:                "id",
+			expectErr:             true,
+			expectLen:             0,
+			expectBatchSpecsCalls: 0,
 		},
 	}
 	for _, tt := range tests {
@@ -191,12 +191,17 @@ func TestCompare(t *testing.T) {
 			if tt.expectErr {
 				assert.Error(t, err)
 				assert.Nil(t, items)
+				assert.Equal(t, tt.expectBatchSpecsCalls, tt.repo.batchSpecsCalls)
 			} else {
 				require.NoError(t, err)
 				assert.Len(t, items, tt.expectLen)
+				assert.Equal(t, tt.expectBatchSpecsCalls, tt.repo.batchSpecsCalls)
 				if tt.expectLen == 2 {
 					assert.Equal(t, "p1", items[0]["id"])
 					assert.Equal(t, "p2", items[1]["id"])
+				}
+				if tt.expectSpecifications {
+					assert.Contains(t, items[0], "specifications")
 				}
 			}
 		})

@@ -28,6 +28,7 @@ INSERT OR IGNORE INTO product_type_specs (product_type, specs_table) VALUES
 -- Criação da tabela de especificações para smartphones
 CREATE TABLE IF NOT EXISTS smartphone_specs (
     model TEXT PRIMARY KEY,
+    model_version TEXT,
     battery_capacity TEXT,
     camera_specs TEXT,
     memory TEXT,

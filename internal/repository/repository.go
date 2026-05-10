@@ -11,8 +11,7 @@ import (
 var ErrProductNotFound = errors.New("product not found")
 
 type Repository interface {
+	ListAll(ctx context.Context) ([]model.Product, error)
 	ListByIDs(ctx context.Context, ids []string) ([]model.Product, error)
-	GetByID(ctx context.Context, id string) (model.Product, error)
-	GetSpecificationsByModel(ctx context.Context, modelName, productType string) (map[string]string, error)
 	GetSpecificationsBatch(ctx context.Context, models []string, productType string) (map[string]map[string]string, error)
 }

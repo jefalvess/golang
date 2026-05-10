@@ -1,22 +1,32 @@
 package server
 
 import (
+	"comparify/internal/handler"
+	"comparify/internal/service"
+	"comparify/pkg/logger"
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
-
-	"comparify/internal/handler"
-	"comparify/internal/service"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+func TestMain(m *testing.M) {
+	logger.Init()
+	os.Exit(m.Run())
+}
+
 type stubService struct{}
 
-func (s *stubService) GetItem(ctx context.Context, id, fields string) (map[string]any, error) {
-	return map[string]any{"id": id}, nil
+func (s *stubService) ListItems(ctx context.Context) ([]map[string]any, error) {
+	return []map[string]any{}, nil
+}
+
+func (s *stubService) AvailableFields() []string {
+	return []string{"id", "name", "price"}
 }
 
 func (s *stubService) Compare(ctx context.Context, ids []string, fields string) ([]map[string]any, error) {
@@ -48,10 +58,10 @@ func TestRegisterRoutes(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "GET /v1/products/:id registrado",
+			name:       "GET /v1/products registrado",
 			method:     http.MethodGet,
-			url:        "/v1/products/p1",
-			wantStatus: http.StatusOK, // espera-se sucesso do stub
+			url:        "/v1/products",
+			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "GET /v1/products/compare registrado",
